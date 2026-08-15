@@ -64,6 +64,7 @@ export class OrchestratedProcess extends EventEmitter {
         USER: `tenant_${this.userId}`,
       },
       stdio: ["pipe", "pipe", "pipe"],
+      detached: process.platform !== "win32",
     });
 
     if (closeStdinOnInit && this.child.stdin) {
@@ -110,7 +111,15 @@ export class OrchestratedProcess extends EventEmitter {
 
   kill(signal: NodeJS.Signals = "SIGTERM"): void {
     if (this.child && !this.child.killed) {
-      this.child.kill(signal);
+      if (this.child.pid) {
+        try {
+          process.kill(-this.child.pid, signal);
+          return;
+        } catch {}
+      }
+      try {
+        this.child.kill(signal);
+      } catch {}
     }
   }
 

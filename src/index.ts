@@ -119,6 +119,9 @@ async function handleTurnStream(req: Request, res: Response) {
     return res.status(409).json({ error: "Session currently has an active turn running." });
   }
 
+  // Acquire activeSessions lock immediately to prevent TOCTOU concurrency race conditions
+  activeSessions.set(sessionId, null as any);
+
   // Ensure tenant and session exist in DB
   try {
     await sessionStore.ensureTenant(tenantId, `Tenant ${tenantId}`);
@@ -311,28 +314,53 @@ app.post("/api/v1/sessions/:id/interactions", async (req: Request, res: Response
   return res.json({ status: "acknowledged", interactionId: resolution.interactionId });
 });
 
-// Process cleanup on exit
-export function cleanupAllSandboxes(): void {
-  for (const [sessionId, entry] of activeSessions.entries()) {
-    try {
-      entry.proc.kill("SIGTERM");
-      sandboxManager.cleanup(sessionId);
-    } catch {}
+// Explicit session cancel / abort endpoint
+app.post("/api/v1/sessions/:id/cancel", async (req: Request, res: Response) => {
+  const sessionId = extractString(req.params.id);
+  const sessionEntry = activeSessions.get(sessionId);
+
+  if (!sessionEntry || !sessionEntry.proc) {
+    return res.status(404).json({ error: "No active turn currently running for this session." });
   }
+
+  try {
+    sessionEntry.proc.kill("SIGTERM");
+    await sandboxManager.cleanup(sessionId).catch(() => {});
+    activeSessions.delete(sessionId);
+    await sessionStore.updateSessionStatus(sessionId, "failed").catch(() => {});
+    return res.json({ status: "cancelled", sessionId });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// Process cleanup on exit
+export async function cleanupAllSandboxes(): Promise<void> {
+  const entries = Array.from(activeSessions.entries());
   activeSessions.clear();
+  await Promise.all(
+    entries.map(async ([sessionId, entry]) => {
+      if (entry?.proc) {
+        try {
+          entry.proc.kill("SIGTERM");
+        } catch {}
+      }
+      await sandboxManager.cleanup(sessionId).catch(() => {});
+    })
+  );
 }
 
 process.on("SIGTERM", async () => {
-  cleanupAllSandboxes();
-  await shutdownTracer();
-  await closePool();
+  await cleanupAllSandboxes();
+  await shutdownTracer().catch(() => {});
+  await closePool().catch(() => {});
   process.exit(0);
 });
 
 process.on("SIGINT", async () => {
-  cleanupAllSandboxes();
-  await shutdownTracer();
-  await closePool();
+  await cleanupAllSandboxes();
+  await shutdownTracer().catch(() => {});
+  await closePool().catch(() => {});
   process.exit(0);
 });
 

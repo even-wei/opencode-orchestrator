@@ -244,6 +244,19 @@ async function handleRun(args: string[]) {
       tenantId = args[++i];
     } else if (arg === "--format") {
       format = (args[++i] as any) || "text";
+    } else if (arg === "--skill") {
+      const skillArg = args[++i];
+      if (skillArg && skillArg.includes("=")) {
+        const eqIdx = skillArg.indexOf("=");
+        const name = skillArg.slice(0, eqIdx);
+        const filePath = skillArg.slice(eqIdx + 1);
+        try {
+          const content = fs.readFileSync(path.resolve(filePath), "utf-8");
+          skills.push({ name, content });
+        } catch (err: any) {
+          console.warn(`[Orchestrator] Failed to read skill file ${filePath}: ${err.message}`);
+        }
+      }
     } else if (!arg.startsWith("-")) {
       prompt = prompt ? `${prompt} ${arg}` : arg;
     }
