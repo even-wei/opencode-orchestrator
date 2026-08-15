@@ -204,8 +204,68 @@ data: {"runId":"run_1786789041","status":"completed","exitCode":0}
 - `POST /api/v1/tenants`: Create/ensure tenant
 - `POST /api/v1/sessions`: Create new session
 - `GET /api/v1/sessions/:id`: Get session metadata & status
-- `GET /api/v1/sessions/:id/events`: Get session event history
-- `GET /health`: Health check endpoint
+---
+
+## 🧩 Skills & MCP Configuration Guide
+
+`opencode-orchestrator` allows injecting declarative skills (`SKILL.md`) and Model Context Protocol (MCP) servers dynamically into each ephemeral execution turn.
+
+### 1. Declarative Skills
+
+Skills are markdown instructions with YAML frontmatter placed in `.opencode/skills/<skill-name>/SKILL.md`:
+
+```markdown
+---
+name: db-analyzer
+description: Inspects database schemas, indexes, and queries using PostgreSQL MCP tools
+---
+
+# PostgreSQL Database Analyzer Skill
+1. Use `postgres-mcp` tools to inspect `information_schema.tables`.
+2. Check foreign key relationships and index coverage.
+3. Recommend composite indexes for slow queries.
+```
+
+### 2. Model Context Protocol (MCP) Servers
+
+MCP servers are configured in `taskConfig.mcp` (injected into `$HOME/.config/opencode/opencode.json`):
+
+```json
+{
+  "taskConfig": {
+    "model": "openrouter/deepseek/deepseek-v4-flash",
+    "mcp": {
+      "postgres": {
+        "command": "npx",
+        "args": [
+          "-y",
+          "@modelcontextprotocol/server-postgres",
+          "postgresql://postgres:postgres@localhost:5432/opencode"
+        ]
+      },
+      "filesystem": {
+        "command": "npx",
+        "args": [
+          "-y",
+          "@modelcontextprotocol/server-filesystem",
+          "/tmp/sandboxes"
+        ]
+      },
+      "remote-mcp": {
+        "url": "https://mcp.internal.company.com/sse"
+      }
+    }
+  }
+}
+```
+
+### 3. Example Turn Payload
+
+See [`examples/turn_with_skills_and_mcp.json`](examples/turn_with_skills_and_mcp.json) and run with TypeScript:
+
+```bash
+npx tsx examples/run_turn.ts
+```
 
 ---
 
