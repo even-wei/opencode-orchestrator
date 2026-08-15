@@ -1,0 +1,47 @@
+groups:
+  - name: opencode-orchestrator-alerts
+    rules:
+      - alert: HighTurnFailureRate
+        expr: (sum(rate(orchestrator_turns_total{status="failed"}[5m])) / sum(rate(orchestrator_turns_total[5m]))) > 0.15
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "High turn failure rate detected ({{ $value | humanizePercentage }})"
+          description: "Over 15% of OpenCode agent turns failed over the last 5 minutes on instance {{ $labels.instance }}."
+
+      - alert: OrchestratorSandboxTMPFSLeak
+        expr: (sum(rate(orchestrator_sandboxes_provisioned_total[10m])) - sum(rate(orchestrator_sandboxes_cleaned_total[10m]))) > 0.05
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Ephemeral sandbox leak detected in TMPFS"
+          description: "Sandboxes are being created faster than they are being purged over 15 minutes. Potential memory leak in /tmp/sandboxes."
+
+      - alert: PostgresConnectionPoolSaturation
+        expr: orchestrator_db_pool_waiting > 5
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "PostgreSQL connection pool saturated"
+          description: "{{ $value }} requests are queued waiting for a free database connection. Consider increasing DB_POOL_MAX."
+
+      - alert: HighTurnLatency
+        expr: histogram_quantile(0.95, sum by (le) (rate(orchestrator_turn_duration_seconds_bucket[5m]))) > 180
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "P95 turn latency exceeded 3 minutes"
+          description: "95th percentile turn duration is currently {{ $value }}s on instance {{ $labels.instance }}."
+
+      - alert: HighHumanApprovalWaitTime
+        expr: histogram_quantile(0.90, sum by (le) (rate(orchestrator_interaction_duration_seconds_bucket[10m]))) > 120
+        for: 10m
+        labels:
+          severity: info
+        annotations:
+          summary: "Long Human-in-the-Loop approval wait time"
+          description: "Users are taking more than 2 minutes to approve security permission requests."

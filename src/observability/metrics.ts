@@ -1,5 +1,5 @@
 import client, { Registry, Counter, Gauge, Histogram, collectDefaultMetrics } from "prom-client";
-import { query } from "../db/client";
+import { query, getPoolStats } from "../db/client";
 
 // 1. Prometheus Metrics Registry
 export const registry = new Registry();
@@ -80,6 +80,32 @@ export const interactionDurationSeconds = new Histogram({
   buckets: [1, 5, 10, 30, 60, 120, 300],
   registers: [registry],
 });
+
+// --- PostgreSQL Connection Pool Metrics ---
+export const dbPoolTotalGauge = new Gauge({
+  name: "orchestrator_db_pool_total",
+  help: "Total active PostgreSQL connection pool clients",
+  registers: [registry],
+});
+
+export const dbPoolIdleGauge = new Gauge({
+  name: "orchestrator_db_pool_idle",
+  help: "Idle PostgreSQL connection pool clients",
+  registers: [registry],
+});
+
+export const dbPoolWaitingGauge = new Gauge({
+  name: "orchestrator_db_pool_waiting",
+  help: "Queued requests waiting for a PostgreSQL connection",
+  registers: [registry],
+});
+
+export function updateDbPoolMetrics(): void {
+  const stats = getPoolStats();
+  dbPoolTotalGauge.set(stats.totalCount);
+  dbPoolIdleGauge.set(stats.idleCount);
+  dbPoolWaitingGauge.set(stats.waitingCount);
+}
 
 // 2. Database Metric Record Interface
 export interface TelemetryRecord {

@@ -7,7 +7,7 @@ import { AGUIStreamAdapter } from "./events/aguiAdapter";
 import { sessionStore } from "./db/sessionStore";
 import { interactionRegistry } from "./interactive/interactionRegistry";
 import { UserInteractionResolution, OpenCodeRawEvent } from "./events/types";
-import { closePool } from "./db/client";
+import { closePool, getPool } from "./db/client";
 import { TurnTracer, shutdownTracer } from "./observability/tracer";
 import {
   registry,
@@ -20,6 +20,7 @@ import {
   costUsdTotal,
   interactionsTotal,
   interactionsResolvedTotal,
+  updateDbPoolMetrics,
   recordMetricToDb,
   getTelemetrySummary,
 } from "./observability/metrics";
@@ -54,9 +55,26 @@ app.get("/api/v1/health", (req: Request, res: Response) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });
 });
 
+// Kubernetes Liveness Probe
+app.get("/livez", (req: Request, res: Response) => {
+  res.status(200).send("ok");
+});
+
+// Kubernetes Readiness Probe (verifies PostgreSQL connectivity)
+app.get("/readyz", async (req: Request, res: Response) => {
+  try {
+    const pool = getPool();
+    await pool.query("SELECT 1 AS ready");
+    res.status(200).send("ready");
+  } catch (err: any) {
+    res.status(503).json({ status: "error", message: `Database unreachable: ${err.message}` });
+  }
+});
+
 // Prometheus Metrics endpoint for Kubernetes / Grafana scraping
 app.get("/metrics", async (req: Request, res: Response) => {
   try {
+    updateDbPoolMetrics();
     res.setHeader("Content-Type", registry.contentType);
     res.send(await registry.metrics());
   } catch (err: any) {
@@ -435,7 +453,11 @@ process.on("SIGINT", async () => {
   process.exit(0);
 });
 
-export function startServer(port: number = config.port) {
+export async function startServer(port: number = config.port) {
+  const swept = await sandboxManager.initSweep();
+  if (swept > 0) {
+    console.log(`[Startup] Swept ${swept} orphaned sandbox directory(ies) from ${config.sandboxBaseDir}.`);
+  }
   return app.listen(port, () => {
     console.log(`OpenCode Ephemeral Orchestrator listening on port ${port}`);
   });

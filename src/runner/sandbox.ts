@@ -94,4 +94,24 @@ export class SandboxManager {
     const rootPath = path.join(this.baseDir, sessionId);
     await fs.rm(rootPath, { recursive: true, force: true }).catch(() => {});
   }
+
+  /**
+   * Sweeps and purges any orphaned sandbox directories left over from previous process crashes or restarts.
+   */
+  async initSweep(): Promise<number> {
+    try {
+      const items = await fs.readdir(this.baseDir);
+      let swept = 0;
+      for (const item of items) {
+        const itemPath = path.join(this.baseDir, item);
+        try {
+          await fs.rm(itemPath, { recursive: true, force: true });
+          swept++;
+        } catch {}
+      }
+      return swept;
+    } catch {
+      return 0;
+    }
+  }
 }

@@ -61,6 +61,7 @@ export class TurnTracer {
           "run.id": this.runId,
           "llm.model_name": this.model,
           "input.value": this.prompt,
+          "llm.input_messages": JSON.stringify([{ role: "user", content: this.prompt }]),
         },
       });
     }
@@ -89,10 +90,14 @@ export class TurnTracer {
   onToolFinish(callId: string, result: string, isError: boolean = false): void {
     const span = this.activeToolSpans.get(callId);
     if (span) {
-      span.setAttribute("output.value", typeof result === "string" ? result : JSON.stringify(result));
-      span.setStatus({
-        code: isError ? SpanStatusCode.ERROR : SpanStatusCode.OK,
-      });
+      const formattedResult = typeof result === "string" ? result : JSON.stringify(result);
+      span.setAttribute("output.value", formattedResult);
+      if (isError) {
+        span.recordException(new Error(formattedResult));
+        span.setStatus({ code: SpanStatusCode.ERROR, message: formattedResult });
+      } else {
+        span.setStatus({ code: SpanStatusCode.OK });
+      }
       span.end();
       this.activeToolSpans.delete(callId);
     }
@@ -101,9 +106,18 @@ export class TurnTracer {
   onMetrics(tokens?: { input?: number; output?: number; total?: number }, cost?: number): void {
     if (!this.rootSpan) return;
     if (tokens) {
-      if (tokens.input !== undefined) this.rootSpan.setAttribute("llm.usage.prompt_tokens", tokens.input);
-      if (tokens.output !== undefined) this.rootSpan.setAttribute("llm.usage.completion_tokens", tokens.output);
-      if (tokens.total !== undefined) this.rootSpan.setAttribute("llm.usage.total_tokens", tokens.total);
+      if (tokens.input !== undefined) {
+        this.rootSpan.setAttribute("llm.token_count.prompt", tokens.input);
+        this.rootSpan.setAttribute("llm.usage.prompt_tokens", tokens.input);
+      }
+      if (tokens.output !== undefined) {
+        this.rootSpan.setAttribute("llm.token_count.completion", tokens.output);
+        this.rootSpan.setAttribute("llm.usage.completion_tokens", tokens.output);
+      }
+      if (tokens.total !== undefined) {
+        this.rootSpan.setAttribute("llm.token_count.total", tokens.total);
+        this.rootSpan.setAttribute("llm.usage.total_tokens", tokens.total);
+      }
     }
     if (cost !== undefined) {
       this.rootSpan.setAttribute("llm.cost", cost);
@@ -115,7 +129,8 @@ export class TurnTracer {
     const tracer = getTracer();
     const span = tracer.startSpan(`Approval: ${tool}`, {
       attributes: {
-        "openinference.span.kind": "APPROVAL",
+        "openinference.span.kind": "GUARDRAIL",
+        "guardrail.name": "Human-in-the-Loop Approval",
         "session.id": this.sessionId,
         "interaction.id": interactionId,
         "tool.name": tool,
@@ -129,6 +144,7 @@ export class TurnTracer {
     const span = this.activeApprovalSpans.get(interactionId);
     if (span) {
       span.setAttribute("interaction.resolution", resolution);
+      span.setAttribute("guardrail.action", resolution);
       span.setStatus({
         code: resolution === "approved" ? SpanStatusCode.OK : SpanStatusCode.ERROR,
       });
@@ -153,11 +169,20 @@ export class TurnTracer {
 
     if (outputText) {
       this.rootSpan.setAttribute("output.value", outputText);
+      this.rootSpan.setAttribute(
+        "llm.output_messages",
+        JSON.stringify([{ role: "assistant", content: outputText }])
+      );
     }
     this.rootSpan.setAttribute("run.exit_code", exitCode);
-    this.rootSpan.setStatus({
-      code: status === "completed" && exitCode === 0 ? SpanStatusCode.OK : SpanStatusCode.ERROR,
-    });
+    if (status === "completed" && exitCode === 0) {
+      this.rootSpan.setStatus({ code: SpanStatusCode.OK });
+    } else {
+      this.rootSpan.setStatus({
+        code: SpanStatusCode.ERROR,
+        message: `Process exited with code ${exitCode}`,
+      });
+    }
     this.rootSpan.end();
     this.rootSpan = null;
 

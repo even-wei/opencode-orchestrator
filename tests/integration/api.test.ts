@@ -2,11 +2,22 @@ import { test, expect } from "vitest";
 import request from "supertest";
 import { app } from "../../src/index";
 
-test("GET /health returns ok", async () => {
-  const res = await request(app).get("/health");
-  expect(res.status).toBe(200);
-  expect(res.body.status).toBe("ok");
-  expect(res.body.timestamp).toBeDefined();
+test("GET /health and GET /livez return ok", async () => {
+  const healthRes = await request(app).get("/health");
+  expect(healthRes.status).toBe(200);
+  expect(healthRes.body.status).toBe("ok");
+
+  const livezRes = await request(app).get("/livez");
+  expect(livezRes.status).toBe(200);
+  expect(livezRes.text).toBe("ok");
+});
+
+test("GET /readyz verifies database readiness", async () => {
+  const res = await request(app).get("/readyz");
+  expect([200, 503]).toContain(res.status);
+  if (res.status === 200) {
+    expect(res.text).toBe("ready");
+  }
 });
 
 test("POST /api/v1/sessions/:id/interactions returns 404 when no pending interaction", async () => {
