@@ -25,12 +25,14 @@ async function main() {
       model: "openrouter/deepseek/deepseek-v4-flash",
       mcp: {
         postgres: {
+          type: "local",
           command: "npx",
           args: [
             "-y",
             "@modelcontextprotocol/server-postgres",
             process.env.DATABASE_URL || "postgresql://postgres:postgres@localhost:5432/opencode"
-          ]
+          ],
+          enabled: true
         }
       }
     },

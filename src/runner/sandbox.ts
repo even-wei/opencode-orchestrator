@@ -31,10 +31,27 @@ export class SandboxManager {
     await fs.mkdir(workspacePath, { recursive: true });
     await fs.mkdir(authDir, { recursive: true });
 
+    // Normalize taskConfig & MCP server entries to OpenCode format
+    const normalizedTaskConfig = { ...(config.taskConfig ?? {}) };
+    if (normalizedTaskConfig.mcp && typeof normalizedTaskConfig.mcp === "object") {
+      const normalizedMcp: Record<string, any> = {};
+      for (const [key, server] of Object.entries(normalizedTaskConfig.mcp)) {
+        if (server && typeof server === "object") {
+          const s = server as Record<string, any>;
+          normalizedMcp[key] = {
+            type: s.type || (s.command ? "local" : s.url ? "remote" : "local"),
+            enabled: s.enabled !== undefined ? s.enabled : true,
+            ...s,
+          };
+        }
+      }
+      normalizedTaskConfig.mcp = normalizedMcp;
+    }
+
     // Injected runtime config & MCP mappings
     await fs.writeFile(
       path.join(configPath, "opencode.json"),
-      JSON.stringify(config.taskConfig ?? {}, null, 2),
+      JSON.stringify(normalizedTaskConfig, null, 2),
       "utf-8"
     );
 

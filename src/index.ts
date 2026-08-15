@@ -217,6 +217,14 @@ async function handleTurnStream(req: Request, res: Response) {
     adapter.processRawEvent(rawEvent);
   });
 
+  proc.on("stderr", (data: string) => {
+    console.error(`[Process stderr] ${data}`);
+  });
+
+  proc.on("error", (err: Error) => {
+    console.error(`[Process error] ${err.message}`);
+  });
+
   proc.on("closed", async (exitCode: number) => {
     if (sessionEntry.accumulatedText) {
       try {

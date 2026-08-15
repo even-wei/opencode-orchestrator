@@ -6,20 +6,14 @@
     "model": "openrouter/deepseek/deepseek-v4-flash",
     "mcp": {
       "postgres": {
+        "type": "local",
         "command": "npx",
         "args": [
           "-y",
           "@modelcontextprotocol/server-postgres",
           "postgresql://postgres:postgres@localhost:5432/opencode"
-        ]
-      },
-      "filesystem": {
-        "command": "npx",
-        "args": [
-          "-y",
-          "@modelcontextprotocol/server-filesystem",
-          "/tmp/sandboxes"
-        ]
+        ],
+        "enabled": true
       }
     }
   },
@@ -27,10 +21,6 @@
     {
       "name": "db-analyzer",
       "content": "---\nname: db-analyzer\ndescription: Inspects database schemas and queries\n---\n# DB Analyzer Skill\n1. Run schema queries.\n2. Verify missing foreign key indexes.\n3. Output optimization recommendations."
-    },
-    {
-      "name": "git-release",
-      "content": "---\nname: git-release\ndescription: Semantic release and git tags\n---\n# Git Release Skill\n1. Inspect git status.\n2. Bump package.json version.\n3. Tag release."
     }
   ]
 }
