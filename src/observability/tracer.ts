@@ -45,6 +45,7 @@ export class TurnTracer {
           "openinference.span.kind": "CHAIN",
           "session.id": this.sessionId,
           "tenant.id": this.tenantId,
+          "user.id": this.tenantId,
           "run.id": this.runId,
           "llm.model_name": this.model,
           "input.value": this.prompt,
@@ -60,6 +61,8 @@ export class TurnTracer {
       attributes: {
         "openinference.span.kind": "TOOL",
         "session.id": this.sessionId,
+        "tenant.id": this.tenantId,
+        "user.id": this.tenantId,
         "tool.name": tool,
         "tool.call_id": callId,
         "input.value": typeof params === "string" ? params : JSON.stringify(params),
