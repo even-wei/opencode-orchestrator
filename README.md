@@ -1,6 +1,6 @@
 # OpenCode Ephemeral Orchestrator
 
-`opencode-orchestrator` is a multi-tenant, ephemeral execution engine for OpenCode CLI. It enables stateless, disposable agent task execution, maintains persistent session state and conversation memory in PostgreSQL, streams real-time events via the **AG-UI Protocol (SSE)**, and provides human-in-the-loop interactions through a bidirectional `stdio` bridge.
+`opencode-orchestrator` is a multi-tenant, ephemeral execution engine and CLI for OpenCode. It enables stateless, disposable agent task execution, maintains persistent session state and conversation memory in PostgreSQL, streams real-time events via the **AG-UI Protocol (SSE)**, and provides human-in-the-loop interactions through a bidirectional `stdio` bridge.
 
 ---
 
@@ -43,15 +43,42 @@
 
 ---
 
+## ⌨️ CLI Usage
+
+`opencode-orchestrator` provides a complete standalone command-line interface.
+
+```bash
+# Display help & command reference
+npx opencode-orchestrator --help
+
+# 1. Run a one-off ephemeral turn directly from terminal
+npx opencode-orchestrator run "Write a quicksort in Python" -m openrouter/deepseek/deepseek-v4-flash
+
+# 2. Run with AG-UI SSE stream output
+npx opencode-orchestrator run "Say hello" -m openrouter/deepseek/deepseek-v4-flash --format sse
+
+# 3. Start the HTTP & SSE server
+npx opencode-orchestrator serve -p 8080
+
+# 4. Check database & binary health
+npx opencode-orchestrator health
+
+# 5. Apply PostgreSQL migrations
+npx opencode-orchestrator migrate
+```
+
+---
+
 ## 📡 AG-UI Protocol Mapping
 
 | OpenCode Raw Event | AG-UI SSE Event | Description |
 | :--- | :--- | :--- |
-| `token` | `MESSAGE_START` / `TEXT_MESSAGE_CONTENT` | Assistant response token stream |
+| `token` / `text` | `MESSAGE_START` / `TEXT_MESSAGE_CONTENT` | Assistant response token stream |
 | `plan_update` | `STATE_DELTA` (`path: "/todos"`) | Progress plan and checklist updates |
-| `tool_start` | `TOOL_CALL_START` | Sub-agent or tool execution triggered |
-| `tool_finish` | `TOOL_CALL_RESULT` | Tool completion output & status |
-| `permission_request`| `INTERACTION_REQUEST` | Approval request halting execution |
+| `step_finish` | `STATE_DELTA` (`path: "/metrics"`) | Token usage and cost metrics |
+| `tool_start` / `tool_use` | `TOOL_CALL_START` | Tool execution triggered |
+| `tool_finish` / `tool_use` | `TOOL_CALL_RESULT` | Tool completion output & status |
+| `permission_request` / `permission` | `INTERACTION_REQUEST` | Approval request halting execution |
 | `session_compacted` | `STATE_DELTA` (`path: "/summary"`) | Updated compacted memory summary |
 | `done` | `MESSAGE_END` + `RUN_FINISHED` | Completion status and stream termination |
 
@@ -63,6 +90,7 @@
 
 ```bash
 npm install
+npm run build
 ```
 
 ### 2. Environment Setup
@@ -78,16 +106,15 @@ cp .env.example .env
 Apply `schema.sql` to your PostgreSQL database:
 
 ```bash
+npm run cli -- migrate
+# Or with psql:
 psql $DATABASE_URL -f schema.sql
 ```
 
-### 4. Build & Run
+### 4. Run Server
 
 ```bash
-# Build TypeScript
-npm run build
-
-# Start Production Server
+# Start Server
 npm start
 
 # Or start in Development mode with tsx
@@ -106,11 +133,14 @@ npm run test
 
 ### Test Coverage
 
+* **`tests/unit/cli.test.ts`**: Validates CLI commands and flag parsing.
 * **`tests/unit/sandbox.test.ts`**: Verifies ephemeral folder provisioning, dynamic skill injection, and complete cleanup.
 * **`tests/unit/aguiAdapter.test.ts`**: Validates mapping from OpenCode JSON events to AG-UI SSE events.
 * **`tests/unit/sessionStore.test.ts`**: Tests context rehydration and summary formatting.
+* **`tests/integration/api.test.ts`**: Validates Express API endpoints.
 * **`tests/integration/interactionFlow.test.ts`**: Validates stdio pause, resume, and human-in-the-loop approvals.
 * **`tests/integration/turnStreamE2E.test.ts`**: Full end-to-end SSE turn execution and HTTP interaction resolution.
+* **`tests/integration/realOpenCode.test.ts`**: Live execution with real OpenCode CLI and OpenRouter DeepSeek.
 
 ---
 
@@ -123,9 +153,10 @@ npm run test
 ```json
 {
   "tenantId": "tenant_101",
+  "model": "openrouter/deepseek/deepseek-v4-flash",
   "prompt": "Create a database migration for users table",
   "taskConfig": {
-    "model": "anthropic/claude-3-5-sonnet"
+    "model": "openrouter/deepseek/deepseek-v4-flash"
   },
   "skills": [
     {

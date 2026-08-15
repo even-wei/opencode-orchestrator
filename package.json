@@ -3,14 +3,25 @@
   "version": "1.0.0",
   "description": "Multi-tenant ephemeral OpenCode CLI orchestrator with AG-UI protocol and PostgreSQL persistence",
   "main": "dist/index.js",
+  "bin": {
+    "opencode-orchestrator": "dist/cli.js"
+  },
   "scripts": {
-    "build": "tsc",
-    "start": "node dist/index.js",
-    "dev": "tsx src/index.ts",
+    "build": "tsc && chmod +x dist/cli.js",
+    "start": "node dist/cli.js serve",
+    "cli": "tsx src/cli.ts",
+    "dev": "tsx src/cli.ts serve",
     "test": "vitest run",
     "test:watch": "vitest"
   },
-  "keywords": ["opencode", "orchestrator", "ag-ui", "agent", "ephemeral"],
+  "keywords": [
+    "opencode",
+    "orchestrator",
+    "ag-ui",
+    "agent",
+    "ephemeral",
+    "cli"
+  ],
   "author": "",
   "license": "Apache-2.0",
   "dependencies": {
