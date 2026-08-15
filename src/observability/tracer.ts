@@ -142,6 +142,10 @@ export class TurnTracer {
     });
     this.rootSpan.end();
     this.rootSpan = null;
+
+    if (tracerProvider) {
+      tracerProvider.forceFlush().catch(() => {});
+    }
   }
 }
 

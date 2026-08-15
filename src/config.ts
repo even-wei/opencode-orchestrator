@@ -50,7 +50,7 @@ export const config: AppConfig = {
     endpoint:
       process.env.PHOENIX_COLLECTOR_URL ||
       process.env.OTEL_EXPORTER_OTLP_ENDPOINT ||
-      "http://localhost:4318/v1/traces",
+      "http://localhost:6006/v1/traces",
     serviceName: process.env.OTEL_SERVICE_NAME || "opencode-orchestrator",
   },
 };
