@@ -1,6 +1,6 @@
 # OpenCode Ephemeral Orchestrator
 
-[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.x-blue.svg)](https://www.typescriptlang.org/)
 [![Node.js](https://img.shields.io/badge/Node.js-%3E%3D18.0.0-green.svg)](https://nodejs.org/)
 [![Protocol](https://img.shields.io/badge/Protocol-AG--UI%20SSE-orange.svg)](#-ag-ui-protocol-mapping)
@@ -313,4 +313,4 @@ spec:
 
 ## 📄 License
 
-Apache License 2.0. See [LICENSE](LICENSE) for details.
+MIT License. See [LICENSE](LICENSE) for details.

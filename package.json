@@ -23,7 +23,7 @@
     "cli"
   ],
   "author": "",
-  "license": "Apache-2.0",
+  "license": "MIT",
   "dependencies": {
     "@types/express": "^5.0.6",
     "@types/node": "^26.2.0",
