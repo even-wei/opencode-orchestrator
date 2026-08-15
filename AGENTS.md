@@ -34,6 +34,10 @@ Welcome to the `opencode-orchestrator` repository. This document provides techni
    - Agent skills (`SKILL.md`) are dynamically written into `${workspace}/.opencode/skills/{skillName}/SKILL.md`.
    - MCP servers defined in `taskConfig.mcp` are normalized and written to `${home}/.config/opencode/opencode.json`.
 
+6. **Native Self-Hosted Observability (Arize Phoenix / OpenInference):**
+   - Spans are emitted via OpenTelemetry (OTLP HTTP) to Arize Phoenix.
+   - Captures root turn chains, tool execution spans, token/cost metrics, and human-in-the-loop approval latencies.
+
 ---
 
 ## 2. Directory Structure & File Map
@@ -43,6 +47,8 @@ opencode-orchestrator/
 ├── package.json                          # Scripts, runtime & dev dependencies
 ├── tsconfig.json                         # TypeScript configuration (target: ES2022, bundler moduleResolution)
 ├── schema.sql                            # PostgreSQL DDL for tenants, sessions, and chat_events
+├── docker-compose.yml                    # Self-hosted stack (Postgres + Phoenix + Orchestrator)
+├── Dockerfile                            # Production multi-stage Docker build
 ├── .env.example                          # Environment variables template
 ├── README.md                             # User-facing guide & API documentation
 ├── AGENTS.md                             # Agent operating guide & engineering manual
@@ -67,8 +73,10 @@ opencode-orchestrator/
 │   ├── events/
 │   │   ├── types.ts                      # Raw stdout events, AG-UI SSE payloads, DB entity types
 │   │   └── aguiAdapter.ts                # Real-time OpenCode JSON -> AG-UI SSE protocol adapter
-│   └── interactive/
-│       └── interactionRegistry.ts        # In-flight approval registry & stdin dispatcher
+│   ├── interactive/
+│   │   └── interactionRegistry.ts        # In-flight approval registry & stdin dispatcher
+│   └── observability/
+│       └── tracer.ts                     # Arize Phoenix / OpenTelemetry OpenInference tracer
 │
 └── tests/
     ├── unit/
@@ -76,6 +84,7 @@ opencode-orchestrator/
     │   ├── sandbox.test.ts               # Sandbox directory provisioning and purge tests
     │   ├── skillsAndMcp.test.ts          # Declarative skills and MCP normalization tests
     │   ├── aguiAdapter.test.ts           # AG-UI event translation tests
+    │   ├── observability.test.ts         # OpenTelemetry TurnTracer lifecycle tests
     │   └── sessionStore.test.ts          # State rehydration & history prefix tests
     └── integration/
         ├── api.test.ts                   # Express endpoint validation tests
@@ -120,7 +129,11 @@ Maps events according to the following protocol contract:
 | `session_compacted` | `STATE_DELTA` | `{ path: "/summary", op: "replace", value: summary }` |
 | `done` | `MESSAGE_END` + `RUN_FINISHED` | `{ messageId }` + `{ runId, status, exitCode }` |
 
-### 3.4 PostgreSQL Session Store (`src/db/sessionStore.ts`)
+### 3.4 OpenTelemetry Turn Tracer (`src/observability/tracer.ts`)
+- **`TurnTracer`**: Manages OTLP spans conforming to the OpenInference semantic convention (`CHAIN`, `TOOL`, `APPROVAL`).
+- Handles tool executions, token metrics, cost summaries, and HITL approvals without blocking main turn streams.
+
+### 3.5 PostgreSQL Session Store (`src/db/sessionStore.ts`)
 - **`rehydrateContext(sessionId, currentPrompt, maxTurns)`**: Composes summary + previous turns into a unified context prompt before calling OpenCode.
 - **`recordChatEvent(sessionId, turnIndex, eventType, payload)`**: Persists all intermediate events to PostgreSQL `chat_events`.
 
@@ -149,6 +162,9 @@ npm run cli -- run "List files in workspace" -m openrouter/deepseek/deepseek-v4-
 
 # 7. Run turn with Skills and MCP servers
 npx tsx examples/run_turn.ts
+
+# 8. Start full self-hosted Docker stack (Postgres + Phoenix + Orchestrator)
+docker compose up -d
 ```
 
 ---

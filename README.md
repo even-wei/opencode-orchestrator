@@ -280,6 +280,41 @@ npx tsx examples/run_turn.ts
 
 ---
 
+## 🔭 Self-Hosted Observability & Tracing (Arize Phoenix)
+
+`opencode-orchestrator` features native, zero-overhead **OpenTelemetry (OTel)** tracing compliant with the **OpenInference** standard. You can visualize tool execution Gantt charts, model latencies, token consumption, and human-in-the-loop pauses using self-hosted [Arize Phoenix](https://github.com/Arize-ai/phoenix).
+
+### 1. Self-Hosted Stack with Docker Compose
+
+Spin up PostgreSQL, Arize Phoenix, and OpenCode Orchestrator in a single command:
+
+```bash
+docker compose up -d
+```
+
+- **Orchestrator API:** `http://localhost:8080`
+- **Arize Phoenix Web UI:** `http://localhost:6006`
+- **Phoenix OTLP Collector:** `http://localhost:4318/v1/traces`
+- **PostgreSQL Database:** `localhost:5432`
+
+### 2. Environment Configuration
+
+Add the following to your `.env`:
+
+```env
+PHOENIX_ENABLED=true
+PHOENIX_COLLECTOR_URL=http://localhost:4318/v1/traces
+OTEL_SERVICE_NAME=opencode-orchestrator
+```
+
+### 3. What Gets Traced
+- **Root Turn Span (`CHAIN`):** Model, session ID, tenant ID, prompt, total duration, and exit status.
+- **Tool Execution Spans (`TOOL`):** Tool name (`bash`, `read`, `glob`, MCP database tools), inputs, outputs, execution duration, and error states.
+- **Token & Cost Metrics:** Input tokens, output tokens, reasoning tokens, cache hit rate, and total USD cost per turn.
+- **Human-in-the-Loop Spans (`APPROVAL`):** Time spent waiting for user permission and the final decision (`approved` / `rejected`).
+
+---
+
 ## 🧪 Testing & Verification
 
 ```bash

@@ -8,6 +8,7 @@ import { sessionStore } from "./db/sessionStore";
 import { interactionRegistry } from "./interactive/interactionRegistry";
 import { UserInteractionResolution, OpenCodeRawEvent } from "./events/types";
 import { closePool } from "./db/client";
+import { TurnTracer, shutdownTracer } from "./observability/tracer";
 
 export const app = express();
 app.use(express.json());
@@ -17,6 +18,7 @@ const sandboxManager = new SandboxManager(config.sandboxBaseDir);
 interface ActiveSessionEntry {
   proc: OrchestratedProcess;
   adapter: AGUIStreamAdapter;
+  tracer: TurnTracer;
   turnIndex: number;
   accumulatedText: string;
 }
@@ -148,6 +150,7 @@ async function handleTurnStream(req: Request, res: Response) {
 
   const runId = `run_${Date.now()}`;
   const adapter = new AGUIStreamAdapter(res, runId);
+  const tracer = new TurnTracer(sessionId, tenantId, runId, model || "default", prompt);
 
   // Provision ephemeral sandbox
   const env = await sandboxManager.provision({
@@ -163,6 +166,7 @@ async function handleTurnStream(req: Request, res: Response) {
   const sessionEntry: ActiveSessionEntry = {
     proc,
     adapter,
+    tracer,
     turnIndex,
     accumulatedText: "",
   };
@@ -180,6 +184,7 @@ async function handleTurnStream(req: Request, res: Response) {
         proc,
         config.interactionTimeoutMs
       );
+      tracer.onInteractionRequest(rawEvent.data.id, rawEvent.data.tool, rawEvent.data.details);
       try {
         await sessionStore.updateSessionStatus(sessionId, "waiting_for_interaction");
         await sessionStore.recordChatEvent(
@@ -193,6 +198,20 @@ async function handleTurnStream(req: Request, res: Response) {
       sessionEntry.accumulatedText += rawEvent.data.delta;
     } else if (rawEvent.type === "text" && rawEvent.part?.text) {
       sessionEntry.accumulatedText += rawEvent.part.text;
+    } else if (rawEvent.type === "tool_start") {
+      tracer.onToolStart(rawEvent.data?.id || "tool", rawEvent.data?.tool || "tool", rawEvent.data?.params || {});
+    } else if (rawEvent.type === "tool_finish") {
+      tracer.onToolFinish(rawEvent.data?.id || "tool", rawEvent.data?.result || "", rawEvent.data?.isError ?? false);
+    } else if (rawEvent.type === "tool_use" && rawEvent.part) {
+      const part = rawEvent.part;
+      const callId = part.callID || "tool";
+      if (part.state?.status === "completed") {
+        tracer.onToolFinish(callId, typeof part.state.output === "string" ? part.state.output : JSON.stringify(part.state.output), false);
+      } else {
+        tracer.onToolStart(callId, part.tool || "tool", part.state?.input || {});
+      }
+    } else if (rawEvent.type === "step_finish" && rawEvent.part) {
+      tracer.onMetrics(rawEvent.part.tokens, rawEvent.part.cost);
     } else if (rawEvent.type === "session_compacted") {
       try {
         await sessionStore.updateSessionSummary(sessionId, rawEvent.data.summary);
@@ -203,12 +222,7 @@ async function handleTurnStream(req: Request, res: Response) {
           rawEvent.data
         );
       } catch {}
-    } else if (
-      rawEvent.type === "tool_start" ||
-      rawEvent.type === "tool_finish" ||
-      rawEvent.type === "tool_use" ||
-      rawEvent.type === "plan_update"
-    ) {
+    } else if (rawEvent.type === "plan_update") {
       try {
         await sessionStore.recordChatEvent(sessionId, turnIndex, rawEvent.type, rawEvent as any);
       } catch {}
@@ -226,6 +240,8 @@ async function handleTurnStream(req: Request, res: Response) {
   });
 
   proc.on("closed", async (exitCode: number) => {
+    tracer.finish(exitCode === 0 ? "completed" : "failed", exitCode, sessionEntry.accumulatedText);
+
     if (sessionEntry.accumulatedText) {
       try {
         await sessionStore.recordChatEvent(sessionId, turnIndex, "assistant_response", {
@@ -272,6 +288,11 @@ app.post("/api/v1/sessions/:id/interactions", async (req: Request, res: Response
     return res.status(400).json({ error: "Interaction correlation ID mismatch." });
   }
 
+  const sessionEntry = activeSessions.get(sessionId);
+  if (sessionEntry) {
+    sessionEntry.tracer.onInteractionResolved(resolution.interactionId, resolution.resolution);
+  }
+
   const resolved = interactionRegistry.resolve(sessionId, resolution);
   if (!resolved) {
     return res.status(500).json({ error: "Failed to resolve interaction." });
@@ -303,12 +324,14 @@ export function cleanupAllSandboxes(): void {
 
 process.on("SIGTERM", async () => {
   cleanupAllSandboxes();
+  await shutdownTracer();
   await closePool();
   process.exit(0);
 });
 
 process.on("SIGINT", async () => {
   cleanupAllSandboxes();
+  await shutdownTracer();
   await closePool();
   process.exit(0);
 });

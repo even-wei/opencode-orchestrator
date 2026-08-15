@@ -1,0 +1,62 @@
+services:
+  # 1. PostgreSQL - Single Source of Truth
+  postgres:
+    image: postgres:16
+    container_name: opencode-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: opencode
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # 2. Arize Phoenix - Self-Hosted AI Observability & Tracing
+  phoenix:
+    image: arizephoenix/phoenix:latest
+    container_name: opencode-phoenix
+    restart: unless-stopped
+    ports:
+      - "6006:6006"   # Phoenix UI & GraphQL
+      - "4317:4317"   # OTLP gRPC Collector
+      - "4318:4318"   # OTLP HTTP Collector
+    environment:
+      - PHOENIX_PORT=6006
+      - PHOENIX_COLLECTOR_ENDPOINT=0.0.0.0
+
+  # 3. OpenCode Ephemeral Orchestrator Service
+  orchestrator:
+    build: .
+    container_name: opencode-orchestrator
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      phoenix:
+        condition: service_started
+    ports:
+      - "8080:8080"
+    environment:
+      - PORT=8080
+      - HOST=0.0.0.0
+      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/opencode
+      - SANDBOX_BASE_DIR=/tmp/sandboxes
+      - PHOENIX_ENABLED=true
+      - PHOENIX_COLLECTOR_URL=http://phoenix:4318/v1/traces
+      - OTEL_SERVICE_NAME=opencode-orchestrator
+    volumes:
+      # Memory-backed tmpfs for sandbox isolation
+      - type: tmpfs
+        target: /tmp/sandboxes
+        tmpfs:
+          size: 4294967296 # 4GB RAM
+
+volumes:
+  pgdata:

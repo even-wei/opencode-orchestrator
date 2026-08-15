@@ -21,6 +21,11 @@ export interface AppConfig {
   defaultContextTurns: number;
   processTimeoutMs: number;
   interactionTimeoutMs: number;
+  telemetry: {
+    enabled: boolean;
+    endpoint: string;
+    serviceName: string;
+  };
 }
 
 export const config: AppConfig = {
@@ -40,4 +45,12 @@ export const config: AppConfig = {
   defaultContextTurns: parseInt(process.env.DEFAULT_CONTEXT_TURNS || "10", 10),
   processTimeoutMs: parseInt(process.env.PROCESS_TIMEOUT_MS || "300000", 10),
   interactionTimeoutMs: parseInt(process.env.INTERACTION_TIMEOUT_MS || "300000", 10),
+  telemetry: {
+    enabled: process.env.PHOENIX_ENABLED === "true" || process.env.OTEL_ENABLED === "true",
+    endpoint:
+      process.env.PHOENIX_COLLECTOR_URL ||
+      process.env.OTEL_EXPORTER_OTLP_ENDPOINT ||
+      "http://localhost:4318/v1/traces",
+    serviceName: process.env.OTEL_SERVICE_NAME || "opencode-orchestrator",
+  },
 };
