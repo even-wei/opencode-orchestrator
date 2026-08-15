@@ -11,31 +11,54 @@
 
 ## 🏛️ Architecture Design
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                 Client Frontend / IDE                       │
-│    (Renders AG-UI SSE Stream & Submits User Interactions)   │
-└───────────────┬─────────────────────────────▲───────────────┘
-  1. POST /turn │                             │ 3. AG-UI SSE Stream
-  4. POST /interact                           │ (TEXT_MESSAGE_CONTENT,
-                ▼                             │  STATE_DELTA, etc.)
-┌─────────────────────────────────────────────┴───────────────┐
-│              `opencode-orchestrator` Service                │
-│  - Session Manager & Context Rehydrator                     │
-│  - Ephemeral TMPFS Sandbox Provisioner                      │
-│  - AG-UI Protocol Translator                                │
-│  - Stdio RPC Bridge (Stdin Approvals / Stdout Parsing)      │
-│  - PostgreSQL Client & Persistence Sync                     │
-└───────────────┬─────────────────────────────▲───────────────┘
-                │ Spawns isolated process     │ Reads stdout lines
-                │ Writes to stdin             │
-                ▼                             │
-┌─────────────────────────────────────────────┴───────────────┐
-│         Isolated Worker Sub-process (`opencode run`)        │
-│  - HOME=/tmp/sandboxes/{session_id}/home (Ephemeral DB)     │
-│  - WORKDIR=/tmp/sandboxes/{session_id}/workspace            │
-│  - Dynamic Configuration: opencode.json + Skills            │
-└─────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TD
+    subgraph ClientLayer["🖥️ Client / Frontend Layer"]
+        IDE["Client Frontend / Web UI / IDE"]
+    end
+
+    subgraph Orchestrator["⚙️ OpenCode Ephemeral Orchestrator"]
+        API["HTTP & SSE Controller<br/><code>/api/v1/sessions</code>"]
+        Store["Context Rehydrator & Session Store"]
+        Adapter["AG-UI Protocol Stream Adapter"]
+        Registry["Stdio Interaction Registry<br/>(Human-in-the-Loop Bridge)"]
+        SandboxMgr["Sandbox Lifecycle Manager<br/>(Provision & Purge)"]
+    end
+
+    subgraph Database["🐘 PostgreSQL (State of Record)"]
+        PG[("PostgreSQL DB<br/>• tenants<br/>• sessions<br/>• chat_events & summaries")]
+    end
+
+    subgraph Sandbox["📦 Ephemeral Worker Sub-process (TMPFS)"]
+        CLI["OpenCode Worker<br/><code>opencode run --pure</code>"]
+        Home["HOME: /tmp/sandboxes/{id}/home<br/>(auth.json + opencode.json)"]
+        Work["WORKDIR: /tmp/sandboxes/{id}/workspace<br/>(.opencode/skills/SKILL.md)"]
+    end
+
+    subgraph LLM["🧠 AI Provider"]
+        OpenRouter["OpenRouter / DeepSeek / Claude / GPT"]
+    end
+
+    %% Client Interactions
+    IDE -- "1. POST /api/v1/sessions/:id/stream" --> API
+    API -- "3. AG-UI SSE Stream (Tokens, Tools, Deltas)" --> IDE
+    IDE -- "4. POST /interactions (Approvals)" --> API
+
+    %% Persistence & Context Rehydration
+    API --> Store
+    Store -- "Rehydrate context prefix" --> PG
+    API -- "Persist events & summary" --> PG
+
+    %% Sandbox Lifecycle & Stdio RPC Bridge
+    API --> SandboxMgr
+    SandboxMgr -- "Provision & Purge (rm -rf)" --> Home & Work
+    API -- "Spawn process (stdio pipe)" --> CLI
+    Registry -- "Write approval decision to stdin" --> CLI
+    CLI -- "Stdout JSON lines" --> Adapter
+    Adapter -- "Translate to AG-UI SSE" --> API
+
+    %% AI Model Invocation
+    CLI <--> OpenRouter
 ```
 
 ### Core Architecture Principles
@@ -69,7 +92,7 @@
 
 ```bash
 # Clone repository
-git clone https://github.com/opencode-ai/opencode-orchestrator.git
+git clone https://github.com/even-wei/opencode-orchestrator.git
 cd opencode-orchestrator
 
 # Install dependencies
