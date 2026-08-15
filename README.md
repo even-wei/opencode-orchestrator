@@ -11,55 +11,9 @@
 
 ## 🏛️ Architecture Design
 
-```mermaid
-flowchart TD
-    subgraph ClientLayer["🖥️ Client / Frontend Layer"]
-        IDE["Client Frontend / Web UI / IDE"]
-    end
-
-    subgraph Orchestrator["⚙️ OpenCode Ephemeral Orchestrator"]
-        API["HTTP & SSE Controller<br/><code>/api/v1/sessions</code>"]
-        Store["Context Rehydrator & Session Store"]
-        Adapter["AG-UI Protocol Stream Adapter"]
-        Registry["Stdio Interaction Registry<br/>(Human-in-the-Loop Bridge)"]
-        SandboxMgr["Sandbox Lifecycle Manager<br/>(Provision & Purge)"]
-    end
-
-    subgraph Database["🐘 PostgreSQL (State of Record)"]
-        PG[("PostgreSQL DB<br/>• tenants<br/>• sessions<br/>• chat_events & summaries")]
-    end
-
-    subgraph Sandbox["📦 Ephemeral Worker Sub-process (TMPFS)"]
-        CLI["OpenCode Worker<br/><code>opencode run --pure</code>"]
-        Home["HOME: /tmp/sandboxes/{id}/home<br/>(auth.json + opencode.json)"]
-        Work["WORKDIR: /tmp/sandboxes/{id}/workspace<br/>(.opencode/skills/SKILL.md)"]
-    end
-
-    subgraph LLM["🧠 AI Provider"]
-        OpenRouter["OpenRouter / DeepSeek / Claude / GPT"]
-    end
-
-    %% Client Interactions
-    IDE -- "1. POST /api/v1/sessions/:id/stream" --> API
-    API -- "3. AG-UI SSE Stream (Tokens, Tools, Deltas)" --> IDE
-    IDE -- "4. POST /interactions (Approvals)" --> API
-
-    %% Persistence & Context Rehydration
-    API --> Store
-    Store -- "Rehydrate context prefix" --> PG
-    API -- "Persist events & summary" --> PG
-
-    %% Sandbox Lifecycle & Stdio RPC Bridge
-    API --> SandboxMgr
-    SandboxMgr -- "Provision & Purge (rm -rf)" --> Home & Work
-    API -- "Spawn process (stdio pipe)" --> CLI
-    Registry -- "Write approval decision to stdin" --> CLI
-    CLI -- "Stdout JSON lines" --> Adapter
-    Adapter -- "Translate to AG-UI SSE" --> API
-
-    %% AI Model Invocation
-    CLI <--> OpenRouter
-```
+<p align="center">
+  <img src="assets/architecture.png" alt="OpenCode Ephemeral Orchestrator Architecture" width="100%">
+</p>
 
 ### Core Architecture Principles
 
