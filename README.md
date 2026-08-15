@@ -294,7 +294,7 @@ docker compose up -d
 
 - **Orchestrator API:** `http://localhost:8080`
 - **Arize Phoenix Web UI:** `http://localhost:6006`
-- **Phoenix OTLP Collector:** `http://localhost:4318/v1/traces`
+- **Phoenix OTLP Collector:** `http://localhost:6006/v1/traces`
 - **PostgreSQL Database:** `localhost:5432`
 
 ### 2. Environment Configuration
@@ -303,15 +303,36 @@ Add the following to your `.env`:
 
 ```env
 PHOENIX_ENABLED=true
-PHOENIX_COLLECTOR_URL=http://localhost:4318/v1/traces
+PHOENIX_COLLECTOR_URL=http://localhost:6006/v1/traces
 OTEL_SERVICE_NAME=opencode-orchestrator
 ```
 
 ### 3. What Gets Traced
-- **Root Turn Span (`CHAIN`):** Model, session ID, tenant ID, prompt, total duration, and exit status.
+- **Root Turn Span (`CHAIN`):** Model, session ID, tenant ID (`user.id`), prompt, total duration, and exit status.
 - **Tool Execution Spans (`TOOL`):** Tool name (`bash`, `read`, `glob`, MCP database tools), inputs, outputs, execution duration, and error states.
 - **Token & Cost Metrics:** Input tokens, output tokens, reasoning tokens, cache hit rate, and total USD cost per turn.
 - **Human-in-the-Loop Spans (`APPROVAL`):** Time spent waiting for user permission and the final decision (`approved` / `rejected`).
+
+---
+
+## 📖 Client Integration & Call Preparation Manual
+
+For an in-depth guide on how to prepare requests, structure payloads, inject dynamic MCP servers, declare agent skills, and handle streaming SSE events in TypeScript, Python, or cURL, consult the dedicated manual:
+
+👉 **[Complete Turn Preparation & Configuration Manual (docs/CALL_PREPARATION_MANUAL.md)](docs/CALL_PREPARATION_MANUAL.md)**
+
+### Quick Reference: Turn Request Payload
+
+| Field | Type | Required | Description | Example |
+| :--- | :--- | :--- | :--- | :--- |
+| `prompt` | `string` | **Yes** | The natural language task or prompt for this turn | `"List all database tables"` |
+| `tenantId` / `userId` | `string` | No | Tenant or user ID for isolation and trace filtering | `"tenant_dev_101"` |
+| `model` | `string` | No | Model identifier override | `"openrouter/deepseek/deepseek-v4-flash"` |
+| `taskConfig` | `object` | No | Injected into `$HOME/.config/opencode/opencode.json` | `{"model": "...", "mcp": {...}}` |
+| `taskConfig.mcp` | `object` | No | Model Context Protocol servers (local stdio or remote SSE) | See MCP guide below |
+| `skills` | `array` | No | Declarative skills (`{ name, content }`) injected as `SKILL.md` | `[{"name": "db-analyzer", "content": "..."}]` |
+| `auth` | `object` | No | Injected into `$HOME/.local/share/opencode/auth.json` | `{"openrouter": {"apiKey": "..."}}` |
+| `binaryPath` | `string` | No | Custom path to the `opencode` binary if overriding default | `"/usr/local/bin/opencode"` |
 
 ---
 
