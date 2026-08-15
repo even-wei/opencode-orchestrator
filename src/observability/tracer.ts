@@ -1,6 +1,7 @@
 import { trace, Span, SpanStatusCode, Tracer } from "@opentelemetry/api";
 import { BasicTracerProvider, SimpleSpanProcessor } from "@opentelemetry/sdk-trace-base";
-import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http";
+import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-proto";
+import { resourceFromAttributes } from "@opentelemetry/resources";
 import { config } from "../config";
 
 let tracerProvider: BasicTracerProvider | null = null;
@@ -13,15 +14,23 @@ export function getTracer(): Tracer {
         const exporter = new OTLPTraceExporter({
           url: config.telemetry.endpoint,
         });
+        const resource = resourceFromAttributes({
+          "service.name": config.telemetry.serviceName,
+          "project.name": config.telemetry.serviceName,
+        });
         tracerProvider = new BasicTracerProvider({
+          resource,
           spanProcessors: [new SimpleSpanProcessor(exporter)],
         });
         trace.setGlobalTracerProvider(tracerProvider);
+        otelTracer = tracerProvider.getTracer(config.telemetry.serviceName);
       } catch (err: any) {
         console.warn(`[Observability] Failed to initialize OTLPTraceExporter: ${err.message}`);
       }
     }
-    otelTracer = trace.getTracer(config.telemetry.serviceName);
+    if (!otelTracer) {
+      otelTracer = trace.getTracer(config.telemetry.serviceName);
+    }
   }
   return otelTracer;
 }
@@ -44,8 +53,11 @@ export class TurnTracer {
         attributes: {
           "openinference.span.kind": "CHAIN",
           "session.id": this.sessionId,
+          "session_id": this.sessionId,
           "tenant.id": this.tenantId,
+          "tenant_id": this.tenantId,
           "user.id": this.tenantId,
+          "user_id": this.tenantId,
           "run.id": this.runId,
           "llm.model_name": this.model,
           "input.value": this.prompt,
@@ -61,8 +73,11 @@ export class TurnTracer {
       attributes: {
         "openinference.span.kind": "TOOL",
         "session.id": this.sessionId,
+        "session_id": this.sessionId,
         "tenant.id": this.tenantId,
+        "tenant_id": this.tenantId,
         "user.id": this.tenantId,
+        "user_id": this.tenantId,
         "tool.name": tool,
         "tool.call_id": callId,
         "input.value": typeof params === "string" ? params : JSON.stringify(params),
