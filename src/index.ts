@@ -9,6 +9,20 @@ import { interactionRegistry } from "./interactive/interactionRegistry";
 import { UserInteractionResolution, OpenCodeRawEvent } from "./events/types";
 import { closePool } from "./db/client";
 import { TurnTracer, shutdownTracer } from "./observability/tracer";
+import {
+  registry,
+  turnsTotal,
+  turnDurationSeconds,
+  activeSessionsGauge,
+  sandboxesProvisionedTotal,
+  sandboxesCleanedTotal,
+  tokensTotal,
+  costUsdTotal,
+  interactionsTotal,
+  interactionsResolvedTotal,
+  recordMetricToDb,
+  getTelemetrySummary,
+} from "./observability/metrics";
 
 export const app = express();
 app.use(express.json());
@@ -38,6 +52,23 @@ app.get("/health", (req: Request, res: Response) => {
 
 app.get("/api/v1/health", (req: Request, res: Response) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });
+});
+
+// Prometheus Metrics endpoint for Kubernetes / Grafana scraping
+app.get("/metrics", async (req: Request, res: Response) => {
+  try {
+    res.setHeader("Content-Type", registry.contentType);
+    res.send(await registry.metrics());
+  } catch (err: any) {
+    res.status(500).send(err.message);
+  }
+});
+
+// Operational Telemetry query endpoint (PostgreSQL / local telemetry)
+app.get("/api/v1/telemetry", async (req: Request, res: Response) => {
+  const limit = parseInt(extractString(req.query.limit, "100"), 10) || 100;
+  const telemetry = await getTelemetrySummary(limit);
+  return res.json({ count: telemetry.length, telemetry });
 });
 
 // Tenant creation endpoint
@@ -122,6 +153,10 @@ async function handleTurnStream(req: Request, res: Response) {
   // Acquire activeSessions lock immediately to prevent TOCTOU concurrency race conditions
   activeSessions.set(sessionId, null as any);
 
+  // Track turn duration in Prometheus
+  const turnTimer = turnDurationSeconds.startTimer({ tenant_id: tenantId });
+  activeSessionsGauge.inc({ tenant_id: tenantId });
+
   // Ensure tenant and session exist in DB
   try {
     await sessionStore.ensureTenant(tenantId, `Tenant ${tenantId}`);
@@ -162,6 +197,9 @@ async function handleTurnStream(req: Request, res: Response) {
     skills,
   });
 
+  sandboxesProvisionedTotal.inc();
+  recordMetricToDb("sandbox", "sandbox_provisioned", 1, {}, sessionId, tenantId);
+
   // Spawn sub-process
   const proc = new OrchestratedProcess(customBin, rehydratedPrompt, env, tenantId, {
     model: model || undefined,
@@ -188,6 +226,19 @@ async function handleTurnStream(req: Request, res: Response) {
         config.interactionTimeoutMs
       );
       tracer.onInteractionRequest(rawEvent.data.id, rawEvent.data.tool, rawEvent.data.details);
+      interactionsTotal.inc({
+        tenant_id: tenantId,
+        tool: rawEvent.data.tool || "unknown",
+        type: "approval",
+      });
+      recordMetricToDb(
+        "interaction",
+        "permission_request",
+        1,
+        { tool: rawEvent.data.tool, id: rawEvent.data.id },
+        sessionId,
+        tenantId
+      );
       try {
         await sessionStore.updateSessionStatus(sessionId, "waiting_for_interaction");
         await sessionStore.recordChatEvent(
@@ -215,6 +266,17 @@ async function handleTurnStream(req: Request, res: Response) {
       }
     } else if (rawEvent.type === "step_finish" && rawEvent.part) {
       tracer.onMetrics(rawEvent.part.tokens, rawEvent.part.cost);
+      if (rawEvent.part.tokens) {
+        const t = rawEvent.part.tokens;
+        if (t.input) tokensTotal.inc({ tenant_id: tenantId, model: model || "default", type: "input" }, t.input);
+        if (t.output) tokensTotal.inc({ tenant_id: tenantId, model: model || "default", type: "output" }, t.output);
+        if (t.reasoning) tokensTotal.inc({ tenant_id: tenantId, model: model || "default", type: "reasoning" }, t.reasoning);
+        recordMetricToDb("token", "tokens_consumed", t.total || 0, { tokens: t }, sessionId, tenantId);
+      }
+      if (rawEvent.part.cost) {
+        costUsdTotal.inc({ tenant_id: tenantId, model: model || "default" }, rawEvent.part.cost);
+        recordMetricToDb("token", "cost_usd", rawEvent.part.cost, {}, sessionId, tenantId);
+      }
     } else if (rawEvent.type === "session_compacted") {
       try {
         await sessionStore.updateSessionSummary(sessionId, rawEvent.data.summary);
@@ -245,6 +307,14 @@ async function handleTurnStream(req: Request, res: Response) {
   proc.on("closed", async (exitCode: number) => {
     tracer.finish(exitCode === 0 ? "completed" : "failed", exitCode, sessionEntry.accumulatedText);
 
+    // Update Prometheus and DB operational telemetry
+    activeSessionsGauge.dec({ tenant_id: tenantId });
+    sandboxesCleanedTotal.inc();
+    const status = exitCode === 0 ? "completed" : "failed";
+    turnTimer({ status });
+    turnsTotal.inc({ tenant_id: tenantId, model: model || "default", status });
+    recordMetricToDb("turn", "turn_finished", exitCode === 0 ? 1 : 0, { exitCode, status }, sessionId, tenantId);
+
     if (sessionEntry.accumulatedText) {
       try {
         await sessionStore.recordChatEvent(sessionId, turnIndex, "assistant_response", {
@@ -254,10 +324,7 @@ async function handleTurnStream(req: Request, res: Response) {
     }
 
     try {
-      await sessionStore.updateSessionStatus(
-        sessionId,
-        exitCode === 0 ? "completed" : "failed"
-      );
+      await sessionStore.updateSessionStatus(sessionId, status);
     } catch {}
 
     interactionRegistry.clear(sessionId);
@@ -279,16 +346,7 @@ app.post("/api/v1/sessions/:id/interactions", async (req: Request, res: Response
   const resolution = req.body as UserInteractionResolution;
 
   if (!resolution || !resolution.interactionId || !resolution.resolution) {
-    return res.status(400).json({ error: "Invalid interaction resolution payload." });
-  }
-
-  const pending = interactionRegistry.getPendingBySession(sessionId);
-  if (!pending) {
-    return res.status(404).json({ error: "No active session awaiting user interaction." });
-  }
-
-  if (pending.interactionId !== resolution.interactionId) {
-    return res.status(400).json({ error: "Interaction correlation ID mismatch." });
+    return res.status(400).json({ error: "Missing 'interactionId' or 'resolution'." });
   }
 
   const sessionEntry = activeSessions.get(sessionId);
@@ -298,8 +356,21 @@ app.post("/api/v1/sessions/:id/interactions", async (req: Request, res: Response
 
   const resolved = interactionRegistry.resolve(sessionId, resolution);
   if (!resolved) {
-    return res.status(500).json({ error: "Failed to resolve interaction." });
+    return res.status(404).json({ error: "No active session or pending interaction found." });
   }
+
+  interactionsResolvedTotal.inc({
+    tenant_id: "default_tenant",
+    tool: "unknown",
+    resolution: resolution.resolution,
+  });
+  recordMetricToDb(
+    "interaction",
+    "permission_resolved",
+    1,
+    { resolution: resolution.resolution, interactionId: resolution.interactionId },
+    sessionId
+  );
 
   try {
     await sessionStore.updateSessionStatus(sessionId, "running");

@@ -137,6 +137,11 @@ Maps events according to the following protocol contract:
 - **`rehydrateContext(sessionId, currentPrompt, maxTurns)`**: Composes summary + previous turns into a unified context prompt before calling OpenCode.
 - **`recordChatEvent(sessionId, turnIndex, eventType, payload)`**: Persists all intermediate events to PostgreSQL `chat_events`.
 
+### 3.6 Service Metrics & Telemetry (`src/observability/metrics.ts`)
+- **Prometheus Metrics (`/metrics`)**: Exposes counters, gauges, and latency histograms (`prom-client`) for Prometheus / Grafana / Kubernetes pod scraping.
+- **PostgreSQL Operational Telemetry (`/api/v1/telemetry`)**: Asynchronously stores per-turn operational events in the `orchestrator_telemetry` table.
+- **Grafana Dashboard**: Ready-to-import Grafana template in `dashboards/grafana-orchestrator.json`.
+
 ---
 
 ## 4. Development & Testing Commands

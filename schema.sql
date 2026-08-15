@@ -26,3 +26,19 @@ CREATE TABLE IF NOT EXISTS chat_events (
 );
 
 CREATE INDEX IF NOT EXISTS idx_chat_events_session ON chat_events(session_id, turn_index);
+
+CREATE TABLE IF NOT EXISTS orchestrator_telemetry (
+    id BIGSERIAL PRIMARY KEY,
+    session_id VARCHAR(64),
+    tenant_id VARCHAR(64),
+    metric_type VARCHAR(64) NOT NULL,
+    metric_name VARCHAR(128) NOT NULL,
+    metric_value DOUBLE PRECISION NOT NULL,
+    labels JSONB DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_telemetry_created ON orchestrator_telemetry(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_telemetry_tenant_session ON orchestrator_telemetry(tenant_id, session_id);
+CREATE INDEX IF NOT EXISTS idx_telemetry_metric ON orchestrator_telemetry(metric_name);
+

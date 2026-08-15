@@ -321,6 +321,62 @@ OTEL_SERVICE_NAME=opencode-orchestrator
 
 ---
 
+## 📈 Tool & Service Telemetry (Kubernetes & Grafana Ready)
+
+`opencode-orchestrator` natively emits operational and economic telemetry at both the **Prometheus infrastructure level** and the **PostgreSQL relational level**:
+
+### 1. Prometheus Scrape Endpoint (`/metrics`)
+The server exposes a standard Prometheus exposition endpoint at `GET /metrics` for scraping by Prometheus, VictoriaMetrics, or Kubernetes Prometheus Operator:
+
+```bash
+curl http://localhost:8080/metrics
+```
+
+**Exported Metrics:**
+| Metric Name | Type | Description |
+| :--- | :--- | :--- |
+| `orchestrator_turns_total` | Counter | Total turns executed labeled by `tenant_id`, `model`, and `status` (`completed\|failed`) |
+| `orchestrator_turn_duration_seconds` | Histogram | Turn execution latency percentiles (P50, P90, P99) |
+| `orchestrator_active_sessions` | Gauge | Number of in-flight turns currently running |
+| `orchestrator_sandboxes_provisioned_total` | Counter | Total ephemeral TMPFS sandboxes created |
+| `orchestrator_sandboxes_cleaned_total` | Counter | Total sandboxes purged on turn completion |
+| `orchestrator_tokens_total` | Counter | Tokens consumed by `tenant_id`, `model`, and `type` (`input\|output\|reasoning`) |
+| `orchestrator_cost_usd_total` | Counter | Estimated LLM spend in USD |
+| `orchestrator_interactions_total` | Counter | Permission requests emitted by agents |
+| `orchestrator_interactions_resolved_total` | Counter | Human approvals resolved (`approved\|rejected`) |
+| `orchestrator_node_*` | Gauges/Counters | Node.js process CPU, RSS memory, event loop lag, and GC metrics |
+
+### 2. Kubernetes Prometheus Annotations
+Add to your Kubernetes Deployment for automatic discovery:
+
+```yaml
+metadata:
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "8080"
+    prometheus.io/path: "/metrics"
+```
+
+### 3. PostgreSQL Relational Telemetry (`/api/v1/telemetry`)
+Operational metrics are automatically recorded in the `orchestrator_telemetry` table in PostgreSQL for historical auditing and SQL reporting:
+
+```sql
+SELECT 
+    tenant_id, 
+    metric_name, 
+    count(*) as total_events, 
+    sum(metric_value) as aggregate_value
+FROM orchestrator_telemetry
+GROUP BY tenant_id, metric_name;
+```
+
+You can also fetch recent events via REST API: `GET /api/v1/telemetry?limit=50`.
+
+### 4. Turnkey Grafana Dashboard
+A plug-and-play Grafana dashboard is provided in [`dashboards/grafana-orchestrator.json`](dashboards/grafana-orchestrator.json). Simply import this JSON into Grafana to monitor active sessions, turn latencies, token consumption, and Human-in-the-Loop approval metrics.
+
+---
+
 ## 📖 Client Integration & Call Preparation Manual
 
 For an in-depth guide on how to prepare requests, structure payloads, inject dynamic MCP servers, declare agent skills, and handle streaming SSE events in TypeScript, Python, or cURL, consult the dedicated manual:
