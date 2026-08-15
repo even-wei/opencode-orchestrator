@@ -7,6 +7,7 @@ import { SandboxManager } from "./runner/sandbox";
 import { OrchestratedProcess } from "./runner/process";
 import { AGUIStreamAdapter } from "./events/aguiAdapter";
 import { sessionStore } from "./db/sessionStore";
+import { OpenCodeRawEvent } from "./events/types";
 import { randomUUID } from "node:crypto";
 import readline from "node:readline";
 
@@ -115,11 +116,14 @@ async function handleRun(args: string[]) {
   console.log(`[Orchestrator] Provisioned sandbox: ${env.rootPath}`);
   if (model) console.log(`[Orchestrator] Using model: ${model}`);
 
-  // Try rehydrating context if PostgreSQL is active
+  // 1. Context Rehydration from PostgreSQL
+  let turnIndex = 1;
   let effectivePrompt = prompt;
   try {
     await sessionStore.ensureTenant(tenantId, `Tenant ${tenantId}`);
     await sessionStore.createSession(sessionId, tenantId);
+    turnIndex = await sessionStore.getNextTurnIndex(sessionId);
+    await sessionStore.recordChatEvent(sessionId, turnIndex, "user_prompt", { prompt });
     effectivePrompt = await sessionStore.rehydrateContext(sessionId, prompt);
   } catch {}
 
@@ -131,6 +135,7 @@ async function handleRun(args: string[]) {
     { model: model || undefined }
   );
 
+  let accumulatedText = "";
   let rl: readline.Interface | null = null;
   if (process.stdin.isTTY) {
     rl = readline.createInterface({ input: process.stdin, output: process.stdout });
@@ -144,15 +149,25 @@ async function handleRun(args: string[]) {
       },
       `run_${Date.now()}`
     );
-    proc.on("event", (evt) => adapter.processRawEvent(evt));
+    proc.on("event", (evt: OpenCodeRawEvent) => {
+      if (evt.type === "token") accumulatedText += evt.data.delta;
+      if (evt.type === "text" && evt.part?.text) accumulatedText += evt.part.text;
+      adapter.processRawEvent(evt);
+    });
   } else if (format === "json") {
-    proc.on("event", (evt) => console.log(JSON.stringify(evt)));
+    proc.on("event", (evt: OpenCodeRawEvent) => {
+      if (evt.type === "token") accumulatedText += evt.data.delta;
+      if (evt.type === "text" && evt.part?.text) accumulatedText += evt.part.text;
+      console.log(JSON.stringify(evt));
+    });
   } else {
     // Human-friendly text format
-    proc.on("event", (evt) => {
+    proc.on("event", (evt: OpenCodeRawEvent) => {
       if (evt.type === "token") {
+        accumulatedText += evt.data.delta;
         process.stdout.write(evt.data.delta);
       } else if (evt.type === "text" && evt.part?.text) {
+        accumulatedText += evt.part.text;
         process.stdout.write(evt.part.text);
       } else if (evt.type === "tool_use" && evt.part) {
         console.log(`\n\x1b[36m⚙ [Tool: ${evt.part.tool}]\x1b[0m ${JSON.stringify(evt.part.state?.input || {})}`);
@@ -174,7 +189,19 @@ async function handleRun(args: string[]) {
 
   proc.on("closed", async (code) => {
     if (rl) rl.close();
+
+    // 2. Persist turn completion & assistant response to PostgreSQL
+    if (accumulatedText) {
+      try {
+        await sessionStore.recordChatEvent(sessionId, turnIndex, "assistant_response", {
+          text: accumulatedText,
+        });
+        await sessionStore.updateSessionStatus(sessionId, code === 0 ? "completed" : "failed");
+      } catch {}
+    }
+
     await sandboxManager.cleanup(sessionId);
+    await closePool();
     console.log(`\n[Orchestrator] Ephemeral sandbox cleaned up. (Exit code: ${code})`);
     process.exit(code);
   });

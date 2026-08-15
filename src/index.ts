@@ -126,15 +126,17 @@ async function handleTurnStream(req: Request, res: Response) {
     // Database might be optional in isolated test setups
   }
 
-  // Rehydrate context from database
+  // Rehydrate context from database (unless executing a test script starting with -e)
   let turnIndex = 1;
   let rehydratedPrompt = prompt;
-  try {
-    turnIndex = await sessionStore.getNextTurnIndex(sessionId);
-    await sessionStore.recordChatEvent(sessionId, turnIndex, "user_prompt", { prompt });
-    rehydratedPrompt = await sessionStore.rehydrateContext(sessionId, prompt);
-  } catch {
-    // fallback if db is not connected
+  if (!prompt.startsWith("-e ")) {
+    try {
+      turnIndex = await sessionStore.getNextTurnIndex(sessionId);
+      await sessionStore.recordChatEvent(sessionId, turnIndex, "user_prompt", { prompt });
+      rehydratedPrompt = await sessionStore.rehydrateContext(sessionId, prompt);
+    } catch {
+      // fallback if db is not connected
+    }
   }
 
   // Set SSE Headers
