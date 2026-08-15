@@ -1,0 +1,54 @@
+import fs from "node:fs/promises";
+import path from "node:path";
+import { config as appConfig } from "../config";
+
+export interface SandboxConfig {
+  sessionId: string;
+  baseDir?: string;
+  taskConfig: Record<string, any>;
+  skills: Array<{ name: string; content: string }>;
+}
+
+export interface SandboxEnvironment {
+  rootPath: string;
+  homePath: string;
+  workspacePath: string;
+}
+
+export class SandboxManager {
+  constructor(private baseDir: string = appConfig.sandboxBaseDir) {}
+
+  async provision(config: SandboxConfig): Promise<SandboxEnvironment> {
+    const effectiveBaseDir = config.baseDir || this.baseDir;
+    const rootPath = path.join(effectiveBaseDir, config.sessionId);
+    const homePath = path.join(rootPath, "home");
+    const workspacePath = path.join(rootPath, "workspace");
+    const configPath = path.join(homePath, ".config", "opencode");
+
+    await fs.mkdir(configPath, { recursive: true });
+    await fs.mkdir(workspacePath, { recursive: true });
+
+    // Injected runtime config & MCP mappings
+    await fs.writeFile(
+      path.join(configPath, "opencode.json"),
+      JSON.stringify(config.taskConfig ?? {}, null, 2),
+      "utf-8"
+    );
+
+    // Injected declarative skills
+    if (config.skills && Array.isArray(config.skills)) {
+      for (const skill of config.skills) {
+        const skillDir = path.join(workspacePath, ".opencode", "skills", skill.name);
+        await fs.mkdir(skillDir, { recursive: true });
+        await fs.writeFile(path.join(skillDir, "SKILL.md"), skill.content, "utf-8");
+      }
+    }
+
+    return { rootPath, homePath, workspacePath };
+  }
+
+  async cleanup(sessionId: string): Promise<void> {
+    const rootPath = path.join(this.baseDir, sessionId);
+    await fs.rm(rootPath, { recursive: true, force: true }).catch(() => {});
+  }
+}
