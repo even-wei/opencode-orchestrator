@@ -9,6 +9,7 @@ test("CLI --help displays usage guide", async () => {
   expect(output).toContain("OpenCode Ephemeral Orchestrator CLI");
   expect(output).toContain("serve");
   expect(output).toContain("run");
+  expect(output).toContain("verify");
   expect(output).toContain("migrate");
   consoleLogSpy.mockRestore();
 });
@@ -18,4 +19,18 @@ test("CLI --version displays version number", async () => {
   await main(["--version"]);
   expect(consoleLogSpy).toHaveBeenCalledWith("opencode-orchestrator v1.0.0");
   consoleLogSpy.mockRestore();
+});
+
+test("CLI verify command runs system checks", async () => {
+  const consoleLogSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+  const stdoutSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+
+  await main(["verify"]);
+
+  const logOutput = consoleLogSpy.mock.calls.flat().join("\n");
+  expect(logOutput).toContain("OpenCode Ephemeral Orchestrator System Verification");
+  expect(logOutput).toContain("PASSED");
+
+  consoleLogSpy.mockRestore();
+  stdoutSpy.mockRestore();
 });

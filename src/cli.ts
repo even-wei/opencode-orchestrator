@@ -8,8 +8,12 @@ import { OrchestratedProcess } from "./runner/process";
 import { AGUIStreamAdapter } from "./events/aguiAdapter";
 import { sessionStore } from "./db/sessionStore";
 import { OpenCodeRawEvent } from "./events/types";
+import { getTracer } from "./observability/tracer";
 import { randomUUID } from "node:crypto";
 import readline from "node:readline";
+import { execSync } from "node:child_process";
+import fs from "node:fs";
+import path from "node:path";
 
 const VERSION = "1.0.0";
 
@@ -23,6 +27,7 @@ Usage:
 Commands:
   serve                      Start the HTTP & SSE orchestrator server
   run <prompt>               Execute a one-off ephemeral turn directly from CLI
+  verify                     Run complete system verification (DB, CLI, Sandbox, OTel, Live Turn)
   migrate                    Apply schema.sql to the configured PostgreSQL database
   health                     Check PostgreSQL connection and opencode CLI status
 
@@ -36,6 +41,10 @@ Options for 'run':
   -t, --tenant <id>          Tenant ID (default: default_tenant)
       --format <format>      Output format: text | sse | json (default: text)
       --skill <name=file>    Attach custom skill file to the ephemeral sandbox
+
+Options for 'verify':
+  -l, --live                 Execute a live turn test with LLM execution
+  -m, --model <model>        Model identifier for live verification
 
 Global Options:
   -v, --version              Show version number
@@ -75,6 +84,146 @@ async function handleHealth() {
   console.log(`✓ Sandbox base directory: ${config.sandboxBaseDir}`);
   console.log(`✓ OpenCode binary configured: ${config.opencodeBinPath}`);
   console.log("Health check completed.");
+}
+
+async function handleVerify(args: string[]) {
+  let isLive = false;
+  let model = "openrouter/deepseek/deepseek-v4-flash";
+
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg === "--live" || arg === "-l") {
+      isLive = true;
+    } else if (arg === "-m" || arg === "--model") {
+      model = args[++i];
+    }
+  }
+
+  console.log(`\n🔍 OpenCode Ephemeral Orchestrator System Verification\n${"=".repeat(56)}`);
+
+  let allPassed = true;
+
+  // 1. PostgreSQL Check
+  process.stdout.write("1. PostgreSQL Database & Schema... ");
+  try {
+    const pool = getPool();
+    await pool.query("SELECT NOW() as now");
+    const tablesRes = await pool.query<{ table_name: string }>(
+      "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_name IN ('tenants', 'sessions', 'chat_events')"
+    );
+    const tableNames = tablesRes.rows.map((r) => r.table_name);
+    if (tableNames.length >= 3) {
+      console.log(`\x1b[32mPASSED\x1b[0m (Tables: ${tableNames.join(", ")})`);
+    } else {
+      console.log(`\x1b[33mWARNING\x1b[0m (Missing tables. Found: ${tableNames.join(", ") || "none"} — run 'migrate')`);
+    }
+  } catch (err: any) {
+    console.log(`\x1b[31mFAILED\x1b[0m (${err.message})`);
+    allPassed = false;
+  }
+
+  // 2. OpenCode CLI Binary Check
+  process.stdout.write("2. OpenCode CLI Binary Check...   ");
+  try {
+    const versionOutput = execSync(`${config.opencodeBinPath} --version 2>&1`, { encoding: "utf-8" }).trim();
+    console.log(`\x1b[32mPASSED\x1b[0m (Binary: ${config.opencodeBinPath} [${versionOutput}])`);
+  } catch (err: any) {
+    console.log(`\x1b[31mFAILED\x1b[0m (Cannot execute ${config.opencodeBinPath}: ${err.message})`);
+    allPassed = false;
+  }
+
+  // 3. Ephemeral Sandbox & Skills Provisioning
+  process.stdout.write("3. Ephemeral Sandbox & Skills...  ");
+  const testSessionId = `sess_verify_${Date.now()}`;
+  const sandbox = new SandboxManager();
+  try {
+    const env = await sandbox.provision({
+      sessionId: testSessionId,
+      taskConfig: {
+        mcp: {
+          test_mcp: { command: "npx", args: ["-y", "test-pkg"] },
+        },
+      },
+      skills: [{ name: "verify-skill", content: "---\nname: verify\n---\nTest skill" }],
+    });
+
+    const skillFile = path.join(env.workspacePath, ".opencode", "skills", "verify-skill", "SKILL.md");
+    const configFile = path.join(env.homePath, ".config", "opencode", "opencode.json");
+
+    if (fs.existsSync(skillFile) && fs.existsSync(configFile)) {
+      await sandbox.cleanup(testSessionId);
+      console.log(`\x1b[32mPASSED\x1b[0m (Provisioned and cleaned /tmp/sandboxes/${testSessionId})`);
+    } else {
+      throw new Error("Sandbox files were not generated properly");
+    }
+  } catch (err: any) {
+    console.log(`\x1b[31mFAILED\x1b[0m (${err.message})`);
+    allPassed = false;
+  }
+
+  // 4. Arize Phoenix Observability Check
+  process.stdout.write("4. Arize Phoenix Observability... ");
+  if (config.telemetry.enabled) {
+    try {
+      const tracer = getTracer();
+      const span = tracer.startSpan("Verify: system_check");
+      span.end();
+      console.log(`\x1b[32mPASSED\x1b[0m (Collector: ${config.telemetry.endpoint})`);
+    } catch (err: any) {
+      console.log(`\x1b[33mWARNING\x1b[0m (${err.message})`);
+    }
+  } else {
+    console.log(`\x1b[90mSKIPPED\x1b[0m (Observability disabled in config)`);
+  }
+
+  // 5. Live Turn Execution (if requested)
+  if (isLive) {
+    console.log(`\n5. Live Turn Execution (Model: ${model})...`);
+    const liveSessionId = `sess_live_verify_${Date.now()}`;
+    const liveEnv = await sandbox.provision({
+      sessionId: liveSessionId,
+      taskConfig: { model },
+    });
+
+    await new Promise<void>((resolve) => {
+      const proc = new OrchestratedProcess(
+        config.opencodeBinPath,
+        "Write a 1-sentence haiku about coding.",
+        liveEnv,
+        "verify_tenant",
+        { model }
+      );
+
+      let text = "";
+      proc.on("event", (evt: OpenCodeRawEvent) => {
+        if (evt.type === "token") text += evt.data.delta;
+        if (evt.type === "text" && evt.part?.text) text += evt.part.text;
+      });
+
+      proc.on("closed", async (code) => {
+        await sandbox.cleanup(liveSessionId);
+        if (code === 0 && text.trim().length > 0) {
+          console.log(`   Response: "\x1b[36m${text.trim()}\x1b[0m"`);
+          console.log(`   \x1b[32mPASSED\x1b[0m (Live execution successful)`);
+        } else {
+          console.log(`   \x1b[31mFAILED\x1b[0m (Exit code: ${code})`);
+          allPassed = false;
+        }
+        resolve();
+      });
+
+      proc.start();
+    });
+  }
+
+  await closePool();
+  console.log(`${"=".repeat(56)}`);
+  if (allPassed) {
+    console.log(`🎉 System verification \x1b[32mSUCCEEDED\x1b[0m. All components are operational!\n`);
+  } else {
+    console.log(`❌ System verification \x1b[31mFAILED\x1b[0m. Review issues above.\n`);
+    process.exit(1);
+  }
 }
 
 async function handleRun(args: string[]) {
@@ -243,6 +392,11 @@ export async function main(argv: string[] = process.argv.slice(2)) {
 
     case "run":
       await handleRun(argv.slice(1));
+      break;
+
+    case "verify":
+    case "test":
+      await handleVerify(argv.slice(1));
       break;
 
     case "migrate":

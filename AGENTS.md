@@ -160,10 +160,16 @@ npm run dev
 # 6. Execute CLI directly
 npm run cli -- run "List files in workspace" -m openrouter/deepseek/deepseek-v4-flash
 
-# 7. Run turn with Skills and MCP servers
+# 7. Run system verification (all subsystems + OTel)
+npm run cli -- verify
+
+# 8. Run live verification with LLM
+npm run cli -- verify --live
+
+# 9. Run turn with Skills and MCP servers
 npx tsx examples/run_turn.ts
 
-# 8. Start full self-hosted Docker stack (Postgres + Phoenix + Orchestrator)
+# 10. Start full self-hosted Docker stack (Postgres + Phoenix + Orchestrator)
 docker compose up -d
 ```
 

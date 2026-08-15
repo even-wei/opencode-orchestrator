@@ -6,7 +6,7 @@ export interface SandboxConfig {
   sessionId: string;
   baseDir?: string;
   taskConfig: Record<string, any>;
-  skills: Array<{ name: string; content: string }>;
+  skills?: Array<{ name: string; content: string }>;
   auth?: Record<string, any>;
 }
 

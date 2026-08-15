@@ -116,11 +116,17 @@ npx opencode-orchestrator run "Say hello" -m openrouter/deepseek/deepseek-v4-fla
 # 3. Start the HTTP & SSE Server
 npx opencode-orchestrator serve -p 8080
 
-# 4. Check database & binary health
-npx opencode-orchestrator health
+# 4. Run automated system verification (DB, CLI, Sandbox, Skills, OTel)
+npx opencode-orchestrator verify
 
-# 5. Apply PostgreSQL migrations
+# 5. Run live end-to-end turn verification with LLM
+npx opencode-orchestrator verify --live -m openrouter/deepseek/deepseek-v4-flash
+
+# 6. Apply PostgreSQL migrations
 npx opencode-orchestrator migrate
+
+# 7. Check database & binary health
+npx opencode-orchestrator health
 ```
 
 ---
