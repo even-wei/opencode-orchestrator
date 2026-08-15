@@ -15,11 +15,11 @@
   <img src="assets/architecture.png" alt="OpenCode Ephemeral Orchestrator Architecture" width="100%">
 </p>
 
-### Core Architecture Principles
+### Core Architectural Principles
 
 * **Stateless Compute (`tmpfs` Isolation):** Every execution turn provisions a fresh directory at `/tmp/sandboxes/{sessionId}`. OpenCode writes its temporary SQLite database here; upon turn conclusion, the sandbox is purged (`rm -rf`).
 * **Context Rehydration via PostgreSQL:** Before launching the process, the orchestrator queries PostgreSQL for the latest session summary and prior conversation turns, constructing structured context prefixes (`=== PREVIOUS SESSION SUMMARY ===`, `=== RECENT CONVERSATION HISTORY ===`, `=== CURRENT TASK ===`).
-* **Declarative Extensions:** Agent skills (`SKILL.md`) and task configurations are dynamically generated in the sandbox environment immediately prior to process spawning.
+* **Declarative Skills & MCP Integration:** Dynamic agent skills (`SKILL.md`) and Model Context Protocol (`taskConfig.mcp`) servers are automatically provisioned in the sandbox environment immediately prior to process spawning.
 * **AG-UI Protocol Streaming:** OpenCode stdout JSON events are mapped to AG-UI SSE events in real time.
 * **Bidirectional Interaction (Stdio Bridge):** Permission requests trigger an `INTERACTION_REQUEST` event over SSE and suspend the sub-process. User decisions via `POST /api/v1/sessions/:id/interactions` are written directly into `stdin` to resume execution.
 
@@ -77,14 +77,14 @@ cp .env.example .env
 
 ### 3. Database Migration
 
-Apply `schema.sql` to your PostgreSQL database:
+Spin up PostgreSQL (or use Docker) and apply `schema.sql`:
 
 ```bash
-# Using CLI
-npm run cli -- migrate
+# Spin up PostgreSQL in Docker
+docker run -d --name opencode-pg -p 5432:5432 -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=opencode postgres:16
 
-# Or with psql
-psql $DATABASE_URL -f schema.sql
+# Apply migrations using CLI
+npm run cli -- migrate
 ```
 
 ### 4. Running the Service
@@ -204,6 +204,9 @@ data: {"runId":"run_1786789041","status":"completed","exitCode":0}
 - `POST /api/v1/tenants`: Create/ensure tenant
 - `POST /api/v1/sessions`: Create new session
 - `GET /api/v1/sessions/:id`: Get session metadata & status
+- `GET /api/v1/sessions/:id/events`: Get session event history
+- `GET /health` or `GET /api/v1/health`: Health check endpoint
+
 ---
 
 ## 🧩 Skills & MCP Configuration Guide
@@ -236,32 +239,40 @@ MCP servers are configured in `taskConfig.mcp` (injected into `$HOME/.config/ope
     "model": "openrouter/deepseek/deepseek-v4-flash",
     "mcp": {
       "postgres": {
+        "type": "local",
         "command": "npx",
         "args": [
           "-y",
           "@modelcontextprotocol/server-postgres",
           "postgresql://postgres:postgres@localhost:5432/opencode"
-        ]
+        ],
+        "enabled": true
       },
       "filesystem": {
+        "type": "local",
         "command": "npx",
         "args": [
           "-y",
           "@modelcontextprotocol/server-filesystem",
           "/tmp/sandboxes"
-        ]
+        ],
+        "enabled": true
       },
       "remote-mcp": {
-        "url": "https://mcp.internal.company.com/sse"
+        "type": "remote",
+        "url": "https://mcp.internal.company.com/sse",
+        "enabled": true
       }
     }
   }
 }
 ```
 
-### 3. Example Turn Payload
+> **Note:** If `type` or `enabled` are omitted, `opencode-orchestrator` automatically normalizes `type` to `"local"` (or `"remote"`) and sets `enabled: true`.
 
-See [`examples/turn_with_skills_and_mcp.json`](examples/turn_with_skills_and_mcp.json) and run with TypeScript:
+### 3. Example Turn Script
+
+Run a complete turn with skills and MCP using TypeScript:
 
 ```bash
 npx tsx examples/run_turn.ts
@@ -280,6 +291,7 @@ npm test
 
 * **`tests/unit/cli.test.ts`**: Validates CLI commands, flags, and options.
 * **`tests/unit/sandbox.test.ts`**: Verifies ephemeral sandbox provisioning, skill injection, and purge lifecycle.
+* **`tests/unit/skillsAndMcp.test.ts`**: Verifies MCP configuration normalization and skill injections.
 * **`tests/unit/aguiAdapter.test.ts`**: Tests protocol translation for tokens, plans, tool calls, and permissions.
 * **`tests/unit/sessionStore.test.ts`**: Tests context rehydration and summary formatting.
 * **`tests/integration/api.test.ts`**: Validates Express API endpoints.

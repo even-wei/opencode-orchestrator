@@ -30,6 +30,10 @@ Welcome to the `opencode-orchestrator` repository. This document provides techni
    - When OpenCode requires permission or user confirmation, execution is suspended and an `INTERACTION_REQUEST` event is emitted.
    - Decisions submitted via `POST /api/v1/sessions/:id/interactions` are written directly into the sub-process's `stdin`.
 
+5. **Declarative Skills & Dynamic MCP Provisioning:**
+   - Agent skills (`SKILL.md`) are dynamically written into `${workspace}/.opencode/skills/{skillName}/SKILL.md`.
+   - MCP servers defined in `taskConfig.mcp` are normalized and written to `${home}/.config/opencode/opencode.json`.
+
 ---
 
 ## 2. Directory Structure & File Map
@@ -43,6 +47,13 @@ opencode-orchestrator/
 ├── README.md                             # User-facing guide & API documentation
 ├── AGENTS.md                             # Agent operating guide & engineering manual
 │
+├── examples/
+│   ├── run_turn.ts                       # Runnable TypeScript example with skills & MCP
+│   ├── turn_with_skills_and_mcp.json     # Sample turn payload with MCP and skills
+│   └── skills/
+│       ├── db-analyzer/SKILL.md          # PostgreSQL database analyzer skill
+│       └── git-release/SKILL.md          # Semantic versioning release skill
+│
 ├── src/
 │   ├── index.ts                          # Express server, SSE turn handler & REST API routes
 │   ├── cli.ts                            # Standalone CLI entrypoint (`opencode-orchestrator`)
@@ -51,7 +62,7 @@ opencode-orchestrator/
 │   │   ├── client.ts                     # PostgreSQL connection pool and query wrapper
 │   │   └── sessionStore.ts               # State rehydration, turn history & summary persistence
 │   ├── runner/
-│   │   ├── sandbox.ts                    # Ephemeral sandbox directory manager & purge lifecycle
+│   │   ├── sandbox.ts                    # Ephemeral sandbox directory manager, MCP normalizer & purge lifecycle
 │   │   └── process.ts                    # Sub-process spawner, stdin/stdout stream handler & signal traps
 │   ├── events/
 │   │   ├── types.ts                      # Raw stdout events, AG-UI SSE payloads, DB entity types
@@ -63,6 +74,7 @@ opencode-orchestrator/
     ├── unit/
     │   ├── cli.test.ts                   # CLI command and flag parsing tests
     │   ├── sandbox.test.ts               # Sandbox directory provisioning and purge tests
+    │   ├── skillsAndMcp.test.ts          # Declarative skills and MCP normalization tests
     │   ├── aguiAdapter.test.ts           # AG-UI event translation tests
     │   └── sessionStore.test.ts          # State rehydration & history prefix tests
     └── integration/
@@ -79,7 +91,8 @@ opencode-orchestrator/
 ### 3.1 Sandbox Manager (`src/runner/sandbox.ts`)
 - **`provision(config: SandboxConfig): Promise<SandboxEnvironment>`**
   - Creates `${baseDir}/${sessionId}/home` and `${baseDir}/${sessionId}/workspace`.
-  - Injects `${home}/.config/opencode/opencode.json` with task configurations.
+  - Normalizes `taskConfig.mcp` entries (ensures `type: "local"` or `"remote"`, and `enabled: true`).
+  - Injects `${home}/.config/opencode/opencode.json` with task & MCP configurations.
   - Injects `${home}/.local/share/opencode/auth.json` (mirrors host auth if present).
   - Injects `${workspace}/.opencode/skills/{skillName}/SKILL.md` for declarative skills.
 - **`cleanup(sessionId: string): Promise<void>`**
@@ -133,6 +146,9 @@ npm run dev
 
 # 6. Execute CLI directly
 npm run cli -- run "List files in workspace" -m openrouter/deepseek/deepseek-v4-flash
+
+# 7. Run turn with Skills and MCP servers
+npx tsx examples/run_turn.ts
 ```
 
 ---
