@@ -103,6 +103,10 @@ async function handleTurnStream(req: Request, res: Response) {
   const tenantId = extractString(req.body?.tenantId ?? req.query.tenantId, "default_tenant");
   const prompt = extractString(req.body?.prompt ?? req.query.prompt, "Hello OpenCode");
   const taskConfig = req.body?.taskConfig || { model: "anthropic/claude-3-5-sonnet" };
+  const model = extractString(
+    req.body?.model ?? req.query.model ?? taskConfig?.model,
+    ""
+  );
   const skills = req.body?.skills || [];
   const customBin = extractString(
     req.body?.binaryPath ?? req.query.binaryPath,
@@ -151,7 +155,9 @@ async function handleTurnStream(req: Request, res: Response) {
   });
 
   // Spawn sub-process
-  const proc = new OrchestratedProcess(customBin, rehydratedPrompt, env, tenantId);
+  const proc = new OrchestratedProcess(customBin, rehydratedPrompt, env, tenantId, {
+    model: model || undefined,
+  });
   const sessionEntry: ActiveSessionEntry = {
     proc,
     adapter,
@@ -183,6 +189,8 @@ async function handleTurnStream(req: Request, res: Response) {
       } catch {}
     } else if (rawEvent.type === "token") {
       sessionEntry.accumulatedText += rawEvent.data.delta;
+    } else if (rawEvent.type === "text" && rawEvent.part?.text) {
+      sessionEntry.accumulatedText += rawEvent.part.text;
     } else if (rawEvent.type === "session_compacted") {
       try {
         await sessionStore.updateSessionSummary(sessionId, rawEvent.data.summary);
@@ -196,10 +204,11 @@ async function handleTurnStream(req: Request, res: Response) {
     } else if (
       rawEvent.type === "tool_start" ||
       rawEvent.type === "tool_finish" ||
+      rawEvent.type === "tool_use" ||
       rawEvent.type === "plan_update"
     ) {
       try {
-        await sessionStore.recordChatEvent(sessionId, turnIndex, rawEvent.type, rawEvent.data);
+        await sessionStore.recordChatEvent(sessionId, turnIndex, rawEvent.type, rawEvent as any);
       } catch {}
     }
 

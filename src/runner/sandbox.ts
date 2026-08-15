@@ -7,6 +7,7 @@ export interface SandboxConfig {
   baseDir?: string;
   taskConfig: Record<string, any>;
   skills: Array<{ name: string; content: string }>;
+  auth?: Record<string, any>;
 }
 
 export interface SandboxEnvironment {
@@ -24,9 +25,11 @@ export class SandboxManager {
     const homePath = path.join(rootPath, "home");
     const workspacePath = path.join(rootPath, "workspace");
     const configPath = path.join(homePath, ".config", "opencode");
+    const authDir = path.join(homePath, ".local", "share", "opencode");
 
     await fs.mkdir(configPath, { recursive: true });
     await fs.mkdir(workspacePath, { recursive: true });
+    await fs.mkdir(authDir, { recursive: true });
 
     // Injected runtime config & MCP mappings
     await fs.writeFile(
@@ -34,6 +37,29 @@ export class SandboxManager {
       JSON.stringify(config.taskConfig ?? {}, null, 2),
       "utf-8"
     );
+
+    // Injected auth credentials if available
+    if (config.auth) {
+      await fs.writeFile(
+        path.join(authDir, "auth.json"),
+        JSON.stringify(config.auth, null, 2),
+        "utf-8"
+      );
+    } else {
+      const hostAuthPath = path.join(
+        process.env.HOME || "",
+        ".local",
+        "share",
+        "opencode",
+        "auth.json"
+      );
+      try {
+        const hostAuth = await fs.readFile(hostAuthPath, "utf-8");
+        await fs.writeFile(path.join(authDir, "auth.json"), hostAuth, "utf-8");
+      } catch {
+        // Auth file optional
+      }
+    }
 
     // Injected declarative skills
     if (config.skills && Array.isArray(config.skills)) {

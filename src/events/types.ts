@@ -1,12 +1,50 @@
-// OpenCode Engine Raw stdout Events
+// OpenCode Engine Raw stdout Events (Spec format & Real CLI format)
 export type OpenCodeRawEvent =
+  // Synthetic / Spec Formats
   | { type: "token"; data: { delta: string } }
   | { type: "plan_update"; data: { todos: Array<{ id: string; text: string; status: "pending" | "in_progress" | "completed" }> } }
   | { type: "tool_start"; data: { id?: string; tool: string; params: Record<string, any> } }
   | { type: "tool_finish"; data: { id?: string; tool: string; result: any; isError?: boolean } }
   | { type: "permission_request"; data: { id: string; tool: string; details: Record<string, any> } }
   | { type: "session_compacted"; data: { summary: string } }
-  | { type: "done"; data: { exitCode: number } };
+  | { type: "done"; data: { exitCode: number } }
+  // Real OpenCode CLI Events
+  | { type: "text"; part?: { text?: string; id?: string }; timestamp?: number; sessionID?: string }
+  | {
+      type: "tool_use";
+      part?: {
+        id?: string;
+        callID?: string;
+        tool: string;
+        state?: {
+          status: string;
+          input?: Record<string, any>;
+          output?: any;
+          metadata?: Record<string, any>;
+        };
+      };
+      timestamp?: number;
+      sessionID?: string;
+    }
+  | { type: "step_start"; sessionID?: string; part?: Record<string, any>; timestamp?: number }
+  | {
+      type: "step_finish";
+      sessionID?: string;
+      part?: {
+        reason?: string;
+        tokens?: { total?: number; input?: number; output?: number; reasoning?: number };
+        cost?: number;
+      };
+      timestamp?: number;
+    }
+  | {
+      type: "permission";
+      part?: {
+        id: string;
+        tool: string;
+        details?: Record<string, any>;
+      };
+    };
 
 // AG-UI Protocol SSE Payloads
 export type AGUIEvent =

@@ -21,6 +21,7 @@ export class AGUIStreamAdapter {
 
   processRawEvent(raw: OpenCodeRawEvent) {
     switch (raw.type) {
+      // 1. Token / Text Events
       case "token":
         if (!this.currentMessageId) {
           this.currentMessageId = `msg_${randomUUID()}`;
@@ -36,6 +37,24 @@ export class AGUIStreamAdapter {
         });
         break;
 
+      case "text":
+        if (raw.part?.text) {
+          if (!this.currentMessageId) {
+            this.currentMessageId = raw.part.id || `msg_${randomUUID()}`;
+            this.sendEvent("MESSAGE_START", {
+              messageId: this.currentMessageId,
+              role: "assistant",
+              runId: this.runId,
+            });
+          }
+          this.sendEvent("TEXT_MESSAGE_CONTENT", {
+            messageId: this.currentMessageId,
+            delta: raw.part.text,
+          });
+        }
+        break;
+
+      // 2. Planning & Metrics
       case "plan_update":
         this.sendEvent("STATE_DELTA", {
           path: "/todos",
@@ -44,6 +63,20 @@ export class AGUIStreamAdapter {
         });
         break;
 
+      case "step_finish":
+        if (raw.part?.tokens || raw.part?.cost !== undefined) {
+          this.sendEvent("STATE_DELTA", {
+            path: "/metrics",
+            op: "replace",
+            value: {
+              tokens: raw.part.tokens,
+              cost: raw.part.cost,
+            },
+          });
+        }
+        break;
+
+      // 3. Tool Calls
       case "tool_start":
         this.sendEvent("TOOL_CALL_START", {
           callId: raw.data.id || `call_${randomUUID()}`,
@@ -60,6 +93,25 @@ export class AGUIStreamAdapter {
         });
         break;
 
+      case "tool_use":
+        if (raw.part) {
+          const callId = raw.part.callID || raw.part.id || `call_${randomUUID()}`;
+          this.sendEvent("TOOL_CALL_START", {
+            callId,
+            tool: raw.part.tool,
+            params: raw.part.state?.input || {},
+          });
+          if (raw.part.state?.status === "completed" || raw.part.state?.output !== undefined) {
+            this.sendEvent("TOOL_CALL_RESULT", {
+              callId,
+              result: raw.part.state.output,
+              isError: raw.part.state.status === "error",
+            });
+          }
+        }
+        break;
+
+      // 4. Permissions & Interactions
       case "permission_request":
         this.sendEvent("INTERACTION_REQUEST", {
           interactionId: raw.data.id,
@@ -70,6 +122,18 @@ export class AGUIStreamAdapter {
         });
         break;
 
+      case "permission":
+        if (raw.part) {
+          this.sendEvent("INTERACTION_REQUEST", {
+            interactionId: raw.part.id,
+            type: "approval",
+            tool: raw.part.tool,
+            details: raw.part.details || {},
+            options: ["approve", "reject"],
+          });
+        }
+        break;
+
       case "session_compacted":
         this.sendEvent("STATE_DELTA", {
           path: "/summary",
@@ -78,6 +142,7 @@ export class AGUIStreamAdapter {
         });
         break;
 
+      // 5. Completion
       case "done":
         if (this.currentMessageId) {
           this.sendEvent("MESSAGE_END", { messageId: this.currentMessageId });

@@ -4,6 +4,12 @@ import { EventEmitter } from "node:events";
 import { OpenCodeRawEvent } from "../events/types";
 import { SandboxEnvironment } from "./sandbox";
 
+export interface ProcessOptions {
+  customArgs?: string[];
+  model?: string;
+  closeStdinOnInit?: boolean;
+}
+
 export class OrchestratedProcess extends EventEmitter {
   private child!: ChildProcess;
   private isClosed = false;
@@ -13,16 +19,22 @@ export class OrchestratedProcess extends EventEmitter {
     private prompt: string,
     private env: SandboxEnvironment,
     private userId: string,
-    private customArgs?: string[]
+    private options?: ProcessOptions | string[]
   ) {
     super();
   }
 
   start(): void {
     let spawnArgs: string[];
+    const customArgs = Array.isArray(this.options) ? this.options : this.options?.customArgs;
+    const model = !Array.isArray(this.options) ? this.options?.model : undefined;
+    const closeStdinOnInit =
+      !Array.isArray(this.options) && this.options?.closeStdinOnInit !== undefined
+        ? this.options.closeStdinOnInit
+        : this.binaryPath === "opencode" || this.binaryPath.endsWith("/opencode");
 
-    if (this.customArgs) {
-      spawnArgs = this.customArgs;
+    if (customArgs) {
+      spawnArgs = customArgs;
     } else if (this.binaryPath === "node") {
       if (this.prompt.startsWith("-e ")) {
         let script = this.prompt.slice(3).trim();
@@ -37,7 +49,11 @@ export class OrchestratedProcess extends EventEmitter {
         spawnArgs = [this.prompt];
       }
     } else {
-      spawnArgs = ["run", "--format", "json", this.prompt];
+      spawnArgs = ["run", "--pure", "--format", "json"];
+      if (model) {
+        spawnArgs.push("-m", model);
+      }
+      spawnArgs.push(this.prompt);
     }
 
     this.child = spawn(this.binaryPath, spawnArgs, {
@@ -49,6 +65,10 @@ export class OrchestratedProcess extends EventEmitter {
       },
       stdio: ["pipe", "pipe", "pipe"],
     });
+
+    if (closeStdinOnInit && this.child.stdin) {
+      this.child.stdin.end();
+    }
 
     if (this.child.stdout) {
       const rl = readline.createInterface({ input: this.child.stdout });
