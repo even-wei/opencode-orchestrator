@@ -1,10 +1,15 @@
 # OpenCode Ephemeral Orchestrator
 
-`opencode-orchestrator` is a multi-tenant, ephemeral execution engine and CLI for OpenCode. It enables stateless, disposable agent task execution, maintains persistent session state and conversation memory in PostgreSQL, streams real-time events via the **AG-UI Protocol (SSE)**, and provides human-in-the-loop interactions through a bidirectional `stdio` bridge.
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.x-blue.svg)](https://www.typescriptlang.org/)
+[![Node.js](https://img.shields.io/badge/Node.js-%3E%3D18.0.0-green.svg)](https://nodejs.org/)
+[![Protocol](https://img.shields.io/badge/Protocol-AG--UI%20SSE-orange.svg)](#-ag-ui-protocol-mapping)
+
+`opencode-orchestrator` is an enterprise-ready, multi-tenant, ephemeral orchestration engine and CLI for [OpenCode](https://github.com/opencode-ai/opencode). It provides stateless task execution inside isolated `tmpfs` sandboxes, persists session history and conversation memory in PostgreSQL, translates events in real time to the **AG-UI Protocol (SSE)**, and supports human-in-the-loop approvals via a bidirectional `stdio` RPC bridge.
 
 ---
 
-## 🏛️ Architecture Overview
+## 🏛️ Architecture Design
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -33,39 +38,13 @@
 └─────────────────────────────────────────────────────────────┘
 ```
 
-### Core Principles
+### Core Architecture Principles
 
-1. **Stateless Compute (`tmpfs` Isolation):** Each turn provisions an isolated directory at `/tmp/sandboxes/{sessionId}`. OpenCode writes its temporary SQLite database here; upon turn completion, the directory is purged immediately.
-2. **Context Rehydration:** On task turn start, the orchestrator pulls the latest session summary and previous message turns from PostgreSQL, composing a structured context prefix before calling the CLI.
-3. **Declarative Extensions:** Agent skills (`SKILL.md`) and config are injected dynamically into the sandbox environment prior to spawning the process.
-4. **AG-UI Protocol Streaming:** OpenCode stdout JSON events are mapped to AG-UI SSE events in real time.
-5. **Bidirectional Stdio RPC Bridge:** Permission checks pause the sub-process and emit `INTERACTION_REQUEST` over SSE. Resolving the interaction via HTTP POST writes the decision payload directly into `stdin`.
-
----
-
-## ⌨️ CLI Usage
-
-`opencode-orchestrator` provides a complete standalone command-line interface.
-
-```bash
-# Display help & command reference
-npx opencode-orchestrator --help
-
-# 1. Run a one-off ephemeral turn directly from terminal
-npx opencode-orchestrator run "Write a quicksort in Python" -m openrouter/deepseek/deepseek-v4-flash
-
-# 2. Run with AG-UI SSE stream output
-npx opencode-orchestrator run "Say hello" -m openrouter/deepseek/deepseek-v4-flash --format sse
-
-# 3. Start the HTTP & SSE server
-npx opencode-orchestrator serve -p 8080
-
-# 4. Check database & binary health
-npx opencode-orchestrator health
-
-# 5. Apply PostgreSQL migrations
-npx opencode-orchestrator migrate
-```
+* **Stateless Compute (`tmpfs` Isolation):** Every execution turn provisions a fresh directory at `/tmp/sandboxes/{sessionId}`. OpenCode writes its temporary SQLite database here; upon turn conclusion, the sandbox is purged (`rm -rf`).
+* **Context Rehydration via PostgreSQL:** Before launching the process, the orchestrator queries PostgreSQL for the latest session summary and prior conversation turns, constructing structured context prefixes (`=== PREVIOUS SESSION SUMMARY ===`, `=== RECENT CONVERSATION HISTORY ===`, `=== CURRENT TASK ===`).
+* **Declarative Extensions:** Agent skills (`SKILL.md`) and task configurations are dynamically generated in the sandbox environment immediately prior to process spawning.
+* **AG-UI Protocol Streaming:** OpenCode stdout JSON events are mapped to AG-UI SSE events in real time.
+* **Bidirectional Interaction (Stdio Bridge):** Permission requests trigger an `INTERACTION_REQUEST` event over SSE and suspend the sub-process. User decisions via `POST /api/v1/sessions/:id/interactions` are written directly into `stdin` to resume execution.
 
 ---
 
@@ -84,90 +63,138 @@ npx opencode-orchestrator migrate
 
 ---
 
-## 🚀 Quickstart
+## 🚀 Getting Started
 
 ### 1. Installation
 
 ```bash
+# Clone repository
+git clone https://github.com/opencode-ai/opencode-orchestrator.git
+cd opencode-orchestrator
+
+# Install dependencies
 npm install
+
+# Build TypeScript
 npm run build
 ```
 
-### 2. Environment Setup
+### 2. Configuration
 
-Copy `.env.example` to `.env` and set your PostgreSQL connection details:
+Copy `.env.example` to `.env` and set your PostgreSQL and timeout configurations:
 
 ```bash
 cp .env.example .env
 ```
 
-### 3. Database Schema Migration
+| Variable | Default | Description |
+| :--- | :--- | :--- |
+| `PORT` | `8080` | Port for the HTTP & SSE server |
+| `HOST` | `0.0.0.0` | Host interface to bind |
+| `DATABASE_URL` | `postgresql://...` | PostgreSQL connection string |
+| `SANDBOX_BASE_DIR` | `/tmp/sandboxes` | Base directory for ephemeral execution |
+| `OPENCODE_BIN_PATH`| `opencode` | Path to the OpenCode CLI executable |
+| `DEFAULT_CONTEXT_TURNS` | `10` | Number of previous turns to rehydrate |
+| `PROCESS_TIMEOUT_MS` | `300000` | Process execution timeout (ms) |
+| `INTERACTION_TIMEOUT_MS` | `300000` | Pending approval timeout (ms) |
+
+### 3. Database Migration
 
 Apply `schema.sql` to your PostgreSQL database:
 
 ```bash
+# Using CLI
 npm run cli -- migrate
-# Or with psql:
+
+# Or with psql
 psql $DATABASE_URL -f schema.sql
 ```
 
-### 4. Run Server
+### 4. Running the Service
 
 ```bash
-# Start Server
+# Production server
 npm start
 
-# Or start in Development mode with tsx
+# Development mode with tsx
 npm run dev
 ```
 
 ---
 
-## 🧪 Verification & Testing
+## ⌨️ Command-Line Interface (CLI)
 
-Run unit and integration test suites:
+`opencode-orchestrator` can also be used as a standalone CLI tool:
 
 ```bash
-npm run test
+# Show CLI Help
+npx opencode-orchestrator --help
+
+# 1. Execute a one-off ephemeral turn directly from terminal
+npx opencode-orchestrator run "Write a quicksort in Python" -m openrouter/deepseek/deepseek-v4-flash
+
+# 2. Run with AG-UI SSE stream output
+npx opencode-orchestrator run "Say hello" -m openrouter/deepseek/deepseek-v4-flash --format sse
+
+# 3. Start the HTTP & SSE Server
+npx opencode-orchestrator serve -p 8080
+
+# 4. Check database & binary health
+npx opencode-orchestrator health
+
+# 5. Apply PostgreSQL migrations
+npx opencode-orchestrator migrate
 ```
-
-### Test Coverage
-
-* **`tests/unit/cli.test.ts`**: Validates CLI commands and flag parsing.
-* **`tests/unit/sandbox.test.ts`**: Verifies ephemeral folder provisioning, dynamic skill injection, and complete cleanup.
-* **`tests/unit/aguiAdapter.test.ts`**: Validates mapping from OpenCode JSON events to AG-UI SSE events.
-* **`tests/unit/sessionStore.test.ts`**: Tests context rehydration and summary formatting.
-* **`tests/integration/api.test.ts`**: Validates Express API endpoints.
-* **`tests/integration/interactionFlow.test.ts`**: Validates stdio pause, resume, and human-in-the-loop approvals.
-* **`tests/integration/turnStreamE2E.test.ts`**: Full end-to-end SSE turn execution and HTTP interaction resolution.
-* **`tests/integration/realOpenCode.test.ts`**: Live execution with real OpenCode CLI and OpenRouter DeepSeek.
 
 ---
 
-## 🌐 API Reference
+## 🌐 REST & SSE API Reference
 
 ### 1. Initiate Turn & Open AG-UI SSE Stream
-`POST /api/v1/sessions/:id/stream` or `POST /api/v1/sessions/:id/turn`
+`POST /api/v1/sessions/:id/stream` or `POST /api/v1/sessions/:id/turn` (also supports `GET /api/v1/sessions/:id/stream`)
 
 **Request Body:**
 ```json
 {
   "tenantId": "tenant_101",
   "model": "openrouter/deepseek/deepseek-v4-flash",
-  "prompt": "Create a database migration for users table",
+  "prompt": "Create a database migration for the users table",
   "taskConfig": {
     "model": "openrouter/deepseek/deepseek-v4-flash"
   },
   "skills": [
     {
       "name": "db-migrate",
-      "content": "# Database Migration Skill Guide..."
+      "content": "# Database Migration Guide\nUse knex migrations."
     }
   ]
 }
 ```
 
-**Response:** `text/event-stream` (AG-UI SSE protocol)
+**Response:** `text/event-stream` (AG-UI SSE stream)
+
+```http
+event: MESSAGE_START
+data: {"messageId":"msg_101","role":"assistant","runId":"run_1786789041"}
+
+event: TEXT_MESSAGE_CONTENT
+data: {"messageId":"msg_101","delta":"I will create the migration file."}
+
+event: TOOL_CALL_START
+data: {"callId":"call_1","tool":"bash","params":{"command":"touch migration.sql"}}
+
+event: TOOL_CALL_RESULT
+data: {"callId":"call_1","result":"File created","isError":false}
+
+event: STATE_DELTA
+data: {"path":"/metrics","op":"replace","value":{"tokens":{"total":1200,"input":1100,"output":100},"cost":0.0001}}
+
+event: MESSAGE_END
+data: {"messageId":"msg_101"}
+
+event: RUN_FINISHED
+data: {"runId":"run_1786789041","status":"completed","exitCode":0}
+```
 
 ---
 
@@ -177,11 +204,11 @@ npm run test
 **Request Body:**
 ```json
 {
-  "interactionId": "act_101",
+  "interactionId": "perm_101",
   "resolution": "approved",
   "data": {
     "selectedOption": "approve",
-    "feedback": "Execution verified"
+    "feedback": "Deployment approved for staging"
   }
 }
 ```
@@ -190,15 +217,77 @@ npm run test
 ```json
 {
   "status": "acknowledged",
-  "interactionId": "act_101"
+  "interactionId": "perm_101"
 }
 ```
 
 ---
 
-### 3. Session & Tenant Management
+### 3. Session & Tenant Management Endpoints
 - `POST /api/v1/tenants`: Create/ensure tenant
 - `POST /api/v1/sessions`: Create new session
 - `GET /api/v1/sessions/:id`: Get session metadata & status
 - `GET /api/v1/sessions/:id/events`: Get session event history
-- `GET /health`: Health check
+- `GET /health`: Health check endpoint
+
+---
+
+## 🧪 Testing & Verification
+
+```bash
+# Run all test suites (unit, integration, and live OpenCode execution)
+npm test
+```
+
+### Test Suite Structure
+
+* **`tests/unit/cli.test.ts`**: Validates CLI commands, flags, and options.
+* **`tests/unit/sandbox.test.ts`**: Verifies ephemeral sandbox provisioning, skill injection, and purge lifecycle.
+* **`tests/unit/aguiAdapter.test.ts`**: Tests protocol translation for tokens, plans, tool calls, and permissions.
+* **`tests/unit/sessionStore.test.ts`**: Tests context rehydration and summary formatting.
+* **`tests/integration/api.test.ts`**: Validates Express API endpoints.
+* **`tests/integration/interactionFlow.test.ts`**: Tests stdio pause, resume, and human-in-the-loop approvals.
+* **`tests/integration/turnStreamE2E.test.ts`**: Full simulated E2E turn streaming and HTTP interaction resolution.
+* **`tests/integration/realOpenCode.test.ts`**: Live execution with real OpenCode CLI and OpenRouter DeepSeek.
+
+---
+
+## 🚢 Kubernetes & Production Deployment
+
+In Kubernetes, mount `/tmp/sandboxes` to a RAM-backed `emptyDir` (`medium: Memory`) for zero-disk-I/O execution:
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: opencode-orchestrator
+spec:
+  replicas: 3
+  template:
+    spec:
+      containers:
+        - name: orchestrator
+          image: ghcr.io/opencode-ai/opencode-orchestrator:latest
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: db-credentials
+                  key: database-url
+            - name: SANDBOX_BASE_DIR
+              value: /tmp/sandboxes
+          volumeMounts:
+            - mountPath: /tmp/sandboxes
+              name: sandbox-storage
+      volumes:
+        - name: sandbox-storage
+          emptyDir:
+            medium: Memory
+            sizeLimit: 4Gi
+```
+
+---
+
+## 📄 License
+
+Apache License 2.0. See [LICENSE](LICENSE) for details.
