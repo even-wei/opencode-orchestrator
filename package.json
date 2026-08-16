@@ -1,6 +1,6 @@
 {
   "name": "opencode-orchestrator",
-  "version": "1.0.0",
+  "version": "0.1.0",
   "description": "Multi-tenant ephemeral OpenCode CLI orchestrator with AG-UI protocol and PostgreSQL persistence",
   "main": "dist/index.js",
   "bin": {

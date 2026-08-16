@@ -17,7 +17,7 @@ test("CLI --help displays usage guide", async () => {
 test("CLI --version displays version number", async () => {
   const consoleLogSpy = vi.spyOn(console, "log").mockImplementation(() => {});
   await main(["--version"]);
-  expect(consoleLogSpy).toHaveBeenCalledWith("opencode-orchestrator v1.0.0");
+  expect(consoleLogSpy).toHaveBeenCalledWith("opencode-orchestrator v0.1.0");
   consoleLogSpy.mockRestore();
 });
 

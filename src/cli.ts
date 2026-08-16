@@ -17,7 +17,7 @@ import { execSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 
-const VERSION = "1.0.0";
+const VERSION = "0.1.0";
 
 function printHelp() {
   console.log(`
