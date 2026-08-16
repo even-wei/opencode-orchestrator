@@ -110,22 +110,32 @@ npx opencode-orchestrator --help
 # 1. Execute a one-off ephemeral turn directly from terminal
 npx opencode-orchestrator run "Write a quicksort in Python" -m openrouter/deepseek/deepseek-v4-flash
 
-# 2. Run with AG-UI SSE stream output
+# 2. Run with a published agent from the team registry
+npx opencode-orchestrator run --agent db-analyzer "Inspect active table indexes"
+
+# 3. Run with AG-UI SSE stream output
 npx opencode-orchestrator run "Say hello" -m openrouter/deepseek/deepseek-v4-flash --format sse
 
-# 3. Start the HTTP & SSE Server
+# 4. Interactive Agent Genesis Wizard (Create, Test, Iterate, Publish)
+npx opencode-orchestrator agent init
+npx opencode-orchestrator agent test my-agent.agent.json
+npx opencode-orchestrator agent iterate my-agent.agent.json --feedback "Add LIMIT 20 to queries"
+npx opencode-orchestrator agent publish my-agent.agent.json
+npx opencode-orchestrator agent list
+
+# 5. Start the HTTP & SSE Server
 npx opencode-orchestrator serve -p 8080
 
-# 4. Run automated system verification (DB, CLI, Sandbox, Skills, OTel)
+# 6. Run automated system verification (DB, CLI, Sandbox, Skills, OTel)
 npx opencode-orchestrator verify
 
-# 5. Run live end-to-end turn verification with LLM
+# 7. Run live end-to-end turn verification with LLM
 npx opencode-orchestrator verify --live -m openrouter/deepseek/deepseek-v4-flash
 
-# 6. Apply PostgreSQL migrations
+# 8. Apply PostgreSQL migrations
 npx opencode-orchestrator migrate
 
-# 7. Check database & binary health
+# 9. Check database & binary health
 npx opencode-orchestrator health
 ```
 
@@ -457,12 +467,15 @@ npm test
 
 ### Test Suite Structure
 
+* **`tests/unit/agentFactory.test.ts`**: Verifies verified MCPs, curated skills, skill linter, synthesizer, and refiner diffs.
+* **`tests/unit/metrics.test.ts`**: Tests Prometheus counters/gauges and PostgreSQL telemetry persistence.
 * **`tests/unit/cli.test.ts`**: Validates CLI commands, flags, and options.
 * **`tests/unit/sandbox.test.ts`**: Verifies ephemeral sandbox provisioning, skill injection, and purge lifecycle.
 * **`tests/unit/skillsAndMcp.test.ts`**: Verifies MCP configuration normalization and skill injections.
 * **`tests/unit/aguiAdapter.test.ts`**: Tests protocol translation for tokens, plans, tool calls, and permissions.
 * **`tests/unit/sessionStore.test.ts`**: Tests context rehydration and summary formatting.
-* **`tests/integration/api.test.ts`**: Validates Express API endpoints.
+* **`tests/integration/agentApi.test.ts`**: Validates Agent Genesis REST endpoints (synthesize, refine, publish, list).
+* **`tests/integration/api.test.ts`**: Validates Express API endpoints and Kubernetes probes (`/livez`, `/readyz`).
 * **`tests/integration/interactionFlow.test.ts`**: Tests stdio pause, resume, and human-in-the-loop approvals.
 * **`tests/integration/turnStreamE2E.test.ts`**: Full simulated E2E turn streaming and HTTP interaction resolution.
 * **`tests/integration/realOpenCode.test.ts`**: Live execution with real OpenCode CLI and OpenRouter DeepSeek.
