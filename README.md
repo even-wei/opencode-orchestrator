@@ -231,6 +231,10 @@ data: {"runId":"run_1786789041","status":"completed","exitCode":0}
 
 `opencode-orchestrator` features a built-in **Meta-Agent Factory** that allows any team member to design, test, iterate, and publish production-grade AI agents in under 3 minutes.
 
+<p align="center">
+  <img src="assets/agent-genesis-lifecycle.png" alt="AI Agent Genesis and Continuous Iteration Lifecycle" width="100%">
+</p>
+
 ### 1. Interactive Agent Creation (CLI Wizard)
 ```bash
 npx opencode-orchestrator agent init

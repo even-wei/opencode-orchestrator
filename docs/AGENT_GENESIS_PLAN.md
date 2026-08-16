@@ -11,6 +11,10 @@ The system treats agent configuration as a **living software artifact** with a f
 
 ## 2. End-to-End User Journey (CLI & Web UI)
 
+<p align="center">
+  <img src="../assets/agent-genesis-lifecycle.png" alt="AI Agent Genesis and Continuous Iteration Lifecycle" width="100%">
+</p>
+
 ```
   ┌────────────────────────────────────────────────────────────────────────┐
   │ 1. DISCOVERY & ONBOARDING                                              │
