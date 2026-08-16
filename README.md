@@ -212,6 +212,56 @@ data: {"runId":"run_1786789041","status":"completed","exitCode":0}
 - `GET /api/v1/sessions/:id`: Get session metadata & status
 - `GET /api/v1/sessions/:id/events`: Get session event history
 - `GET /health` or `GET /api/v1/health`: Health check endpoint
+- `GET /livez`: Kubernetes liveness probe
+- `GET /readyz`: Kubernetes readiness probe (PostgreSQL verified)
+
+---
+
+## 🏭 Agent Genesis & Continuous Iteration Engine
+
+`opencode-orchestrator` features a built-in **Meta-Agent Factory** that allows any team member to design, test, iterate, and publish production-grade AI agents in under 3 minutes.
+
+### 1. Interactive Agent Creation (CLI Wizard)
+```bash
+npx opencode-orchestrator agent init
+```
+* Scans local repository schemas (`package.json`, `schema.sql`, `Dockerfile`).
+* Selects matching Verified MCPs (`postgres`, `github`, `slack`, `fetch`) and Curated Skills (`db-analyzer`, `git-release`, `pr-reviewer`).
+* Synthesizes and lints `SKILL.md` rules and generates benchmark test cases in `./<agent-name>.agent.json`.
+
+### 2. Benchmark Simulation & Sandbox Testing
+```bash
+npx opencode-orchestrator agent test my-agent.agent.json
+```
+Runs the agent's `evalSuite` in disposable ephemeral sandboxes and asserts deterministic post-conditions (`file_exists`, `output_contains`, `expected_tool_called`).
+
+### 3. Diff-Driven Iterative Steering
+```bash
+npx opencode-orchestrator agent iterate my-agent.agent.json --feedback "Never drop tables without confirmation"
+```
+Proposes a visual Git-style Red/Green diff for `SKILL.md`, bumps the semantic patch version, and prompts for confirmation.
+
+### 4. Publish to Team Registry
+```bash
+npx opencode-orchestrator agent publish my-agent.agent.json
+```
+
+### 5. Execute Registered Agent Directly
+```bash
+# Any teammate can now invoke the published agent:
+npx opencode-orchestrator run --agent my-agent "Triage open customer issues"
+```
+
+### 6. Agent Factory REST Endpoints
+* `GET /api/v1/catalog/mcp`: List verified Model Context Protocol tools.
+* `GET /api/v1/catalog/skills`: List curated operational skills library.
+* `POST /api/v1/agents/synthesize`: Synthesize `AgentBundle` from description/repo scan.
+* `POST /api/v1/agents/refine`: Diff-driven iterative steering.
+* `POST /api/v1/agents/publish`: Save agent bundle to PostgreSQL registry.
+* `GET /api/v1/agents`: List team agent catalog with trust telemetry.
+* `GET /api/v1/agents/:name`: Fetch specific agent bundle.
+
+---
 
 ---
 

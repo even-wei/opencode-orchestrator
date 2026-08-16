@@ -8,6 +8,12 @@ import { sessionStore } from "./db/sessionStore";
 import { interactionRegistry } from "./interactive/interactionRegistry";
 import { UserInteractionResolution, OpenCodeRawEvent } from "./events/types";
 import { closePool, getPool } from "./db/client";
+import { agentStore } from "./db/agentStore";
+import { synthesizeAgent } from "./agent-factory/synthesizer";
+import { refineAgentBundle } from "./agent-factory/refiner";
+import { getMcpCatalog } from "./agent-factory/mcpCatalog";
+import { getCuratedSkills } from "./agent-factory/skillCatalog";
+import { AgentBundle } from "./agent-factory/types";
 import { TurnTracer, shutdownTracer } from "./observability/tracer";
 import {
   registry,
@@ -143,6 +149,115 @@ app.get("/api/v1/sessions/:id/events", async (req: Request, res: Response) => {
   try {
     const events = await sessionStore.getRecentChatEvents(sessionId, limit);
     return res.json(events);
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// ==========================================
+// Agent Genesis & Iteration REST Endpoints
+// ==========================================
+
+// 1. Get Verified MCP Catalog
+app.get("/api/v1/catalog/mcp", (req: Request, res: Response) => {
+  return res.json(getMcpCatalog());
+});
+
+// 2. Get Curated Skills Catalog
+app.get("/api/v1/catalog/skills", (req: Request, res: Response) => {
+  return res.json(getCuratedSkills());
+});
+
+// 3. Synthesize Agent Bundle
+app.post("/api/v1/agents/synthesize", async (req: Request, res: Response) => {
+  const { description, name, repoPath, selectedMcpIds, selectedSkillIds, model, requireApprovalForMutations } = req.body;
+  if (!description) {
+    return res.status(400).json({ error: "Missing required field 'description'." });
+  }
+  try {
+    const result = await synthesizeAgent({
+      description: String(description),
+      name: name ? String(name) : undefined,
+      repoPath: repoPath ? String(repoPath) : undefined,
+      selectedMcpIds: Array.isArray(selectedMcpIds) ? selectedMcpIds : undefined,
+      selectedSkillIds: Array.isArray(selectedSkillIds) ? selectedSkillIds : undefined,
+      model: model ? String(model) : undefined,
+      requireApprovalForMutations: requireApprovalForMutations !== undefined ? Boolean(requireApprovalForMutations) : undefined,
+    });
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// 4. Refine Agent Bundle (Diff-driven)
+app.post("/api/v1/agents/refine", async (req: Request, res: Response) => {
+  const { currentBundle, feedback } = req.body;
+  if (!currentBundle || !feedback) {
+    return res.status(400).json({ error: "Missing 'currentBundle' or 'feedback'." });
+  }
+  try {
+    const result = await refineAgentBundle({
+      currentBundle: currentBundle as AgentBundle,
+      feedback: String(feedback),
+    }, false);
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// 5. Publish Agent Bundle to PostgreSQL Registry
+app.post("/api/v1/agents/publish", async (req: Request, res: Response) => {
+  const bundle = req.body as AgentBundle;
+  const owner = extractString(req.query.owner || req.body?.owner, "platform_team");
+  if (!bundle || !bundle.name || !bundle.version) {
+    return res.status(400).json({ error: "Invalid AgentBundle. 'name' and 'version' are required." });
+  }
+  try {
+    const record = await agentStore.saveAgentTemplate(bundle, owner);
+    return res.status(201).json(record);
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// 6. List Published Agent Templates
+app.get("/api/v1/agents", async (req: Request, res: Response) => {
+  const tag = req.query.tag ? String(req.query.tag) : undefined;
+  try {
+    const templates = await agentStore.listAgentTemplates(tag);
+    return res.json({ count: templates.length, templates });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// 7. Get Specific Agent Template
+app.get("/api/v1/agents/:name", async (req: Request, res: Response) => {
+  const name = extractString(req.params.name);
+  const version = req.query.version ? String(req.query.version) : undefined;
+  try {
+    const template = await agentStore.getAgentTemplate(name, version);
+    if (!template) {
+      return res.status(404).json({ error: `Agent template '${name}' not found.` });
+    }
+    return res.json(template);
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// 8. Delete Agent Template
+app.delete("/api/v1/agents/:name", async (req: Request, res: Response) => {
+  const name = extractString(req.params.name);
+  const version = req.query.version ? String(req.query.version) : undefined;
+  try {
+    const deleted = await agentStore.deleteAgentTemplate(name, version);
+    if (!deleted) {
+      return res.status(404).json({ error: `Agent template '${name}' not found or could not be deleted.` });
+    }
+    return res.json({ status: "deleted", name, version: version || "all" });
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
   }

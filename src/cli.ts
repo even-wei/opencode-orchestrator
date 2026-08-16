@@ -7,6 +7,8 @@ import { SandboxManager } from "./runner/sandbox";
 import { OrchestratedProcess } from "./runner/process";
 import { AGUIStreamAdapter } from "./events/aguiAdapter";
 import { sessionStore } from "./db/sessionStore";
+import { agentStore } from "./db/agentStore";
+import { handleAgentCommand } from "./cli/agentCli";
 import { OpenCodeRawEvent } from "./events/types";
 import { getTracer } from "./observability/tracer";
 import { randomUUID } from "node:crypto";
@@ -27,6 +29,7 @@ Usage:
 Commands:
   serve                      Start the HTTP & SSE orchestrator server
   run <prompt>               Execute a one-off ephemeral turn directly from CLI
+  agent <subcommand>         Interactive Agent Genesis & Continuous Iteration wizard
   verify                     Run complete system verification (DB, CLI, Sandbox, OTel, Live Turn)
   migrate                    Apply schema.sql to the configured PostgreSQL database
   health                     Check PostgreSQL connection and opencode CLI status
@@ -39,8 +42,16 @@ Options for 'run':
   -m, --model <model>        Model identifier (e.g. openrouter/deepseek/deepseek-v4-flash)
   -s, --session <id>         Session ID (default: generates a new ephemeral session)
   -t, --tenant <id>          Tenant ID (default: default_tenant)
+  -a, --agent <name[@ver]>   Load configuration & skills from published AgentBundle
       --format <format>      Output format: text | sse | json (default: text)
       --skill <name=file>    Attach custom skill file to the ephemeral sandbox
+
+Options for 'agent':
+  agent init                 Interactive questionnaire / repo scan to draft agent.json
+  agent test <file>          Execute benchmark evalSuite in ephemeral sandboxes
+  agent iterate <file>       Diff-driven iterative steering with natural language
+  agent publish <file>       Publish agent bundle to team PostgreSQL registry
+  agent list                 Display published team agents and invocation tokens
 
 Options for 'verify':
   -l, --live                 Execute a live turn test with LLM execution
@@ -232,7 +243,9 @@ async function handleRun(args: string[]) {
   let sessionId = `sess_${randomUUID().slice(0, 8)}`;
   let tenantId = "default_tenant";
   let format: "text" | "sse" | "json" = "text";
+  let agentName = "";
   const skills: Array<{ name: string; content: string }> = [];
+  let taskConfig: Record<string, any> = {};
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -242,6 +255,8 @@ async function handleRun(args: string[]) {
       sessionId = args[++i];
     } else if (arg === "-t" || arg === "--tenant") {
       tenantId = args[++i];
+    } else if (arg === "-a" || arg === "--agent") {
+      agentName = args[++i];
     } else if (arg === "--format") {
       format = (args[++i] as any) || "text";
     } else if (arg === "--skill") {
@@ -262,6 +277,42 @@ async function handleRun(args: string[]) {
     }
   }
 
+  // Load from Agent Template if --agent specified
+  if (agentName) {
+    let nameOnly = agentName;
+    let versionOnly: string | undefined = undefined;
+    if (agentName.includes("@")) {
+      const parts = agentName.split("@");
+      nameOnly = parts[0];
+      versionOnly = parts[1];
+    }
+
+    try {
+      const template = await agentStore.getAgentTemplate(nameOnly, versionOnly);
+      if (template) {
+        const bundle = template.bundleJson;
+        console.log(`[Orchestrator] Loaded agent template: ${bundle.name} (v${bundle.version})`);
+        if (!model && bundle.runtime?.model) {
+          model = bundle.runtime.model;
+        }
+        if (bundle.taskConfig) {
+          taskConfig = { ...bundle.taskConfig };
+        }
+        if (bundle.skills && Array.isArray(bundle.skills)) {
+          for (const s of bundle.skills) {
+            skills.push({ name: s.name, content: s.content });
+          }
+        }
+      } else {
+        console.warn(`[Orchestrator] Agent template "${agentName}" not found in database registry. Proceeding with default.`);
+      }
+    } catch {}
+  }
+
+  if (model) {
+    taskConfig.model = model;
+  }
+
   if (!prompt) {
     console.error("Error: Please provide a prompt to run.");
     printHelp();
@@ -271,7 +322,7 @@ async function handleRun(args: string[]) {
   const sandboxManager = new SandboxManager();
   const env = await sandboxManager.provision({
     sessionId,
-    taskConfig: model ? { model } : {},
+    taskConfig,
     skills,
   });
 
@@ -405,6 +456,10 @@ export async function main(argv: string[] = process.argv.slice(2)) {
 
     case "run":
       await handleRun(argv.slice(1));
+      break;
+
+    case "agent":
+      await handleAgentCommand(argv.slice(1));
       break;
 
     case "verify":

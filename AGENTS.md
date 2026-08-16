@@ -142,6 +142,15 @@ Maps events according to the following protocol contract:
 - **PostgreSQL Operational Telemetry (`/api/v1/telemetry`)**: Asynchronously stores per-turn operational events in the `orchestrator_telemetry` table.
 - **Grafana Dashboard**: Ready-to-import Grafana template in `dashboards/grafana-orchestrator.json`.
 
+### 3.7 Agent Genesis & Continuous Iteration Engine (`src/agent-factory/`)
+- **Verified MCP Catalog (`mcpCatalog.ts`)**: Pre-verified configurations for Postgres, GitHub, Slack, SQLite, Fetch.
+- **Curated Skills Library (`skillCatalog.ts`)**: Pre-tested engineering manuals for `db-analyzer`, `git-release`, `pr-reviewer`, `security-auditor`, `api-tester`.
+- **Deterministic Skill Linter (`linter.ts`)**: Enforces word count limits, frontmatter format, and imperative directives.
+- **Agent Synthesizer (`synthesizer.ts`)**: Compiles `AgentBundle` from goals, scanned repo context, and verified catalogs.
+- **Eval Runner & Assertions (`evalRunner.ts`)**: Executes `evalSuite` in ephemeral sandboxes with deterministic assertions (`file_exists`, `output_contains`, `expected_tool_called`).
+- **Diff-Driven Refiner (`refiner.ts`)**: Proposes unified visual diffs for `SKILL.md` and runs shadow regression suites.
+- **Agent Store (`src/db/agentStore.ts`)**: Persists versioned `AgentBundle` templates to PostgreSQL `agent_templates`.
+
 ---
 
 ## 4. Development & Testing Commands

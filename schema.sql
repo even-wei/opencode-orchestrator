@@ -42,3 +42,20 @@ CREATE INDEX IF NOT EXISTS idx_telemetry_created ON orchestrator_telemetry(creat
 CREATE INDEX IF NOT EXISTS idx_telemetry_tenant_session ON orchestrator_telemetry(tenant_id, session_id);
 CREATE INDEX IF NOT EXISTS idx_telemetry_metric ON orchestrator_telemetry(metric_name);
 
+CREATE TABLE IF NOT EXISTS agent_templates (
+    id VARCHAR(64) PRIMARY KEY,
+    name VARCHAR(128) NOT NULL,
+    version VARCHAR(32) NOT NULL,
+    owner VARCHAR(128) NOT NULL DEFAULT 'platform_team',
+    description TEXT,
+    bundle_json JSONB NOT NULL,
+    tags TEXT[] DEFAULT ARRAY[]::TEXT[],
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(name, version)
+);
+
+CREATE INDEX IF NOT EXISTS idx_agent_templates_name ON agent_templates(name);
+CREATE INDEX IF NOT EXISTS idx_agent_templates_owner ON agent_templates(owner);
+
+
